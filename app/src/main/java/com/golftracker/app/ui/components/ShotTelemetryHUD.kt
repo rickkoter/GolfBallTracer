@@ -26,6 +26,7 @@ import com.golftracker.app.ui.theme.*
 fun ShotTelemetryHUD(
     distanceYards: Double,
     distanceMeters: Double,
+    showShotDistance: Boolean,
     clubName: String,
     gpsLaunch: GpsCoordinate?,
     gpsLanding: GpsCoordinate?,
@@ -36,98 +37,80 @@ fun ShotTelemetryHUD(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = GolfDarkCard.copy(alpha = 0.85f)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, GolfNeonLime.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+            .border(1.dp, GolfNeonLime.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Header Row: Brand + Club Selector Button
+            // Header Row: Brand + Optional Side-by-Side Distance + Club Selector Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.SportsGolf,
-                        contentDescription = null,
-                        tint = GolfNeonLime,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "GOLFBALLTRACER",
-                        color = GolfNeonLime,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
+                // Left: Brand or Side-by-Side Distance Label & Yardage
+                if (showShotDistance && distanceYards > 0.0) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "SHOT DISTANCE: ",
+                            color = GolfTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "%.0f YDS".format(distanceYards),
+                            color = GolfNeonLime,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = " (%.0f m)".format(distanceMeters),
+                            color = GolfTextMuted,
+                            fontSize = 10.sp
+                        )
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SportsGolf,
+                            contentDescription = null,
+                            tint = GolfNeonLime,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "GOLFBALLTRACER",
+                            color = GolfNeonLime,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
                 }
 
-                // Club Selector Badge
+                // Right: Compact Club Selector Badge
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(GolfNeonLime.copy(alpha = 0.15f))
                         .clickable { onClubClick() }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = clubName.uppercase(),
                         color = GolfNeonLime,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
 
-            // Main Distance Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    Text(
-                        text = "SHOT DISTANCE",
-                        color = GolfTextSecondary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp
-                    )
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = "%.0f".format(distanceYards),
-                            color = Color.White,
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "YDS",
-                            color = GolfNeonLime,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "(%.0f m)".format(distanceMeters),
-                            color = GolfTextMuted,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-
-            // GPS Actions Row
+            // Compact GPS Actions Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -136,47 +119,53 @@ fun ShotTelemetryHUD(
                 // Tee Lock Button
                 OutlinedButton(
                     onClick = onLockTeeClick,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = if (gpsLaunch != null) GolfNeonLime else GolfTextSecondary
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
                 ) {
                     Icon(
                         imageVector = if (gpsLaunch != null) Icons.Default.GpsFixed else Icons.Default.GpsOff,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (gpsLaunch != null) "Tee Locked" else "Set Tee GPS",
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Ball Pin Lock Button
                 Button(
                     onClick = onLockLandingClick,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (gpsLanding != null) GolfNeonCyan else GolfDarkSurface
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Navigation,
                         contentDescription = null,
                         tint = if (gpsLanding != null) GolfDarkBg else GolfNeonCyan,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (gpsLanding != null) "Ball Pinned" else "Pin Ball GPS",
                         color = if (gpsLanding != null) GolfDarkBg else GolfNeonCyan,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }

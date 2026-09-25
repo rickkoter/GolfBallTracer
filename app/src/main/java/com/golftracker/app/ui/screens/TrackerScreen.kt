@@ -43,6 +43,7 @@ fun TrackerScreen(
     var isRecording by remember { mutableStateOf(false) }
     var isFlashEnabled by remember { mutableStateOf(false) }
     var isApexEditMode by remember { mutableStateOf(false) }
+    var isShotRevealed by remember { mutableStateOf(false) }
 
     var selectedClub by remember { mutableStateOf(ClubType.DRIVER.displayName) }
     var selectedTracerStyle by remember { mutableStateOf(TracerStyle.PRO_LIME) }
@@ -108,11 +109,18 @@ fun TrackerScreen(
             isEditMode = isApexEditMode,
             tappedBallLocation = tappedBallLocation,
             onTapBallLocation = { pt ->
-                // AUTOMATICALLY START RECORDING UPON TAPPING BALL LOCATION ON SCREEN
-                tappedBallLocation = pt
-                isRecording = true
-                detectedPoints = emptyList()
-                locationManager.recordLaunchLocation()
+                if (isRecording) {
+                    isRecording = false
+                    isShotRevealed = true
+                } else if (tappedBallLocation != null || detectedPoints.isNotEmpty()) {
+                    isShotRevealed = true
+                } else {
+                    tappedBallLocation = pt
+                    isRecording = true
+                    detectedPoints = emptyList()
+                    isShotRevealed = false
+                    locationManager.recordLaunchLocation()
+                }
             },
             onPointAdjusted = { updated -> detectedPoints = updated }
         )
@@ -189,6 +197,7 @@ fun TrackerScreen(
                         tappedBallLocation = null
                         isRecording = false
                         detectedPoints = emptyList()
+                        isShotRevealed = false
                     }
             ) {
                 Row(
@@ -203,7 +212,7 @@ fun TrackerScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isRecording) "🔴 RECORDING • Ball locked • Swing when ready!" else "⛳ Tap golf ball on screen to start recording",
+                        text = if (isRecording) "🔴 RECORDING • Tap screen when done!" else if (tappedBallLocation != null || detectedPoints.isNotEmpty()) "⛳ Shot complete! Tap screen to show distance" else "⛳ Tap golf ball on screen to start recording",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
@@ -225,6 +234,7 @@ fun TrackerScreen(
             ShotTelemetryHUD(
                 distanceYards = distanceYards,
                 distanceMeters = distanceMeters,
+                showShotDistance = isShotRevealed,
                 clubName = selectedClub,
                 gpsLaunch = gpsLaunch,
                 gpsLanding = gpsLanding,
@@ -250,6 +260,7 @@ fun TrackerScreen(
                         detectedPoints = emptyList()
                         tappedBallLocation = null
                         isRecording = false
+                        isShotRevealed = false
                         locationManager.reset()
                     },
                     modifier = Modifier
@@ -294,9 +305,11 @@ fun TrackerScreen(
                 // Demo Optical Simulation Trigger
                 IconButton(
                     onClick = {
-                        isRecording = true
+                        isRecording = false
+                        tappedBallLocation = ScreenPoint(0.5f, 0.8f)
                         detectedPoints = TrajectoryMath.generateDefaultTracer(1080f, 1920f)
                         if (distanceYards == 0.0) locationManager.setManualDistanceYards(245.0)
+                        isShotRevealed = false
                     },
                     modifier = Modifier
                         .size(50.dp)
