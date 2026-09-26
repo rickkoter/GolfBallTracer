@@ -16,12 +16,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.golftracker.app.model.GpsCoordinate
 import com.golftracker.app.ui.theme.*
 
+/** One compact row: brand (or shot distance once revealed), club selector and the two GPS buttons. */
 @Composable
 fun ShotTelemetryHUD(
     distanceYards: Double,
@@ -38,138 +41,101 @@ fun ShotTelemetryHUD(
     Card(
         colors = CardDefaults.cardColors(containerColor = GolfDarkCard.copy(alpha = 0.85f)),
         shape = RoundedCornerShape(14.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .border(1.dp, GolfNeonLime.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+        modifier = modifier.border(1.dp, GolfNeonLime.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .padding(start = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Header Row: Brand + Optional Side-by-Side Distance + Club Selector Badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left: Brand or Side-by-Side Distance Label & Yardage
+            // Brand, or the shot distance once it has been revealed
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 if (showShotDistance && distanceYards > 0.0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "SHOT DISTANCE: ",
-                            color = GolfTextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
-                        Text(
-                            text = "%.0f YDS".format(distanceYards),
-                            color = GolfNeonLime,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        Text(
-                            text = " (%.0f m)".format(distanceMeters),
-                            color = GolfTextMuted,
-                            fontSize = 10.sp
-                        )
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.SportsGolf,
-                            contentDescription = null,
-                            tint = GolfNeonLime,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "GOLFBALLTRACER",
-                            color = GolfNeonLime,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
-                    }
-                }
-
-                // Right: Compact Club Selector Badge
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(GolfNeonLime.copy(alpha = 0.15f))
-                        .clickable { onClubClick() }
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
                     Text(
-                        text = clubName.uppercase(),
+                        text = "%.0f YDS".format(distanceYards),
                         color = GolfNeonLime,
-                        fontSize = 11.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
+                    Text(
+                        text = " (%.0f m)".format(distanceMeters),
+                        color = GolfTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.SportsGolf,
+                        contentDescription = null,
+                        tint = GolfNeonLime,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "GOLFBALLTRACER",
+                        color = GolfNeonLime,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
-            // Compact GPS Actions Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Club selector
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(GolfNeonLime.copy(alpha = 0.15f))
+                    .clickable { onClubClick() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
-                // Tee Lock Button
-                OutlinedButton(
-                    onClick = onLockTeeClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (gpsLaunch != null) GolfNeonLime else GolfTextSecondary
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(32.dp)
-                ) {
-                    Icon(
-                        imageVector = if (gpsLaunch != null) Icons.Default.GpsFixed else Icons.Default.GpsOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (gpsLaunch != null) "Tee Locked" else "Set Tee GPS",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Ball Pin Lock Button
-                Button(
-                    onClick = onLockLandingClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (gpsLanding != null) GolfNeonCyan else GolfDarkSurface
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Navigation,
-                        contentDescription = null,
-                        tint = if (gpsLanding != null) GolfDarkBg else GolfNeonCyan,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (gpsLanding != null) "Ball Pinned" else "Pin Ball GPS",
-                        color = if (gpsLanding != null) GolfDarkBg else GolfNeonCyan,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = clubName.uppercase(),
+                    color = GolfNeonLime,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
+                )
             }
+
+            GpsButton(
+                icon = if (gpsLaunch != null) Icons.Default.GpsFixed else Icons.Default.GpsOff,
+                description = if (gpsLaunch != null) "Tee GPS locked" else "Set tee GPS",
+                active = gpsLaunch != null,
+                activeColor = GolfNeonLime,
+                onClick = onLockTeeClick
+            )
+            GpsButton(
+                icon = Icons.Default.Navigation,
+                description = if (gpsLanding != null) "Ball GPS pinned" else "Pin ball GPS",
+                active = gpsLanding != null,
+                activeColor = GolfNeonCyan,
+                onClick = onLockLandingClick
+            )
+        }
+    }
+}
+
+@Composable
+private fun GpsButton(icon: ImageVector, description: String, active: Boolean, activeColor: Color, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) activeColor else GolfDarkSurface),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = if (active) GolfDarkBg else activeColor,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }

@@ -46,9 +46,6 @@ object BallFlightFitter {
     private const val MAX_GAP_S = 0.5
     private const val MAX_FLIGHT_S = 10.0
 
-    /** Seed hypotheses to try when the launch time is unknown and the whole recording must be searched. */
-    private const val SEARCH_BUDGET = 1_500_000
-
     private class Obs(val t: Double, val x: Double, val y: Double, val ns: Long)
 
     private class Frame(val t: Double, val ns: Long, val obs: List<Obs>)
@@ -95,12 +92,13 @@ object BallFlightFitter {
         val teeX = shot.teeX * aspect
         val teeY = shot.teeY.toDouble()
         val tol = ((shot.ballRadius ?: 0.01f) * 1.5).coerceIn(0.012, 0.04)
-        val launchT = shot.launchTimestampNs?.let { (it - t0Ns) / 1e9 }
         val frameDt = typicalFrameInterval(frames)
 
-        // Trust the detected launch time first; if nothing fits around it, search the whole recording.
-        val seeds = launchT?.let { findSeeds(frames, frameDt, teeX, teeY, tol, it) }?.takeIf { it.isNotEmpty() }
-            ?: findSeeds(frames, frameDt, teeX, teeY, tol, null)
+        // Without seeing the ball leave the tee there's nothing to anchor the search to. Hunting through
+        // the whole recording instead turned swaying trees and a golfer's head into flights, and a wrong
+        // tracer is worse than none.
+        val launchT = shot.launchTimestampNs?.let { (it - t0Ns) / 1e9 } ?: return emptyList()
+        val seeds = findSeeds(frames, frameDt, teeX, teeY, tol, launchT)
 
         // Refining can turn a seed built from three awkwardly spaced sightings into the full flight,
         // so rank seeds only after refining them. A clubhead can briefly follow a launch-like path;
@@ -129,7 +127,7 @@ object BallFlightFitter {
 
     /** The best few distinct seeds, best first. */
     private fun findSeeds(
-        frames: List<Frame>, frameDt: Double, teeX: Double, teeY: Double, tol: Double, launchT: Double?
+        frames: List<Frame>, frameDt: Double, teeX: Double, teeY: Double, tol: Double, launchT: Double
     ): List<Seed> {
         val top = ArrayList<Seed>()
         fun offer(seed: Seed) {
@@ -147,13 +145,8 @@ object BallFlightFitter {
             top.sortByDescending { it.score }
             if (top.size > SEEDS_TO_TRY) top.removeAt(top.size - 1)
         }
-        var budget = SEARCH_BUDGET
-        // Without a launch time, look backwards from the end: the user stops recording soon after the
-        // ball lands, so the shot is usually near the end, and the budget is spent there first.
-        val order = if (launchT != null) frames.indices else frames.indices.reversed()
-        for (i in order) {
-            val f1 = frames[i]
-            if (launchT != null && (f1.t < launchT - 0.05 || f1.t > launchT + MAX_FIRST_SEEN_AFTER_LAUNCH_S)) continue
+        for ((i, f1) in frames.withIndex()) {
+            if (f1.t < launchT - 0.05 || f1.t > launchT + MAX_FIRST_SEEN_AFTER_LAUNCH_S) continue
             for (p1 in f1.obs) {
                 val d1 = dist(p1.x, p1.y, teeX, teeY)
                 if (d1 > MAX_FIRST_SEEN_DISTANCE) continue
@@ -168,7 +161,7 @@ object BallFlightFitter {
                         // Launch time, first guess: back up from p1 to the tee at the speed between p1 and p2.
                         val linearT0 = p1.t - d1 / speed
                         if (p1.t - linearT0 > MAX_FIRST_SEEN_AFTER_LAUNCH_S) continue
-                        if (launchT != null && abs(linearT0 - launchT) > 0.15) continue
+                        if (abs(linearT0 - launchT) > 0.15) continue
                         val dx12 = p2.x - p1.x
                         val dy12 = p2.y - p1.y
 
@@ -185,7 +178,6 @@ object BallFlightFitter {
                                 if (cos < 0.25) continue
 
                                 for (t0 in launchTimes(p1, p2, p3, d1, d2, teeX, teeY, linearT0, frameDt, launchT)) {
-                                    if (--budget < 0) return top
                                     val path = solvePath(t0, teeX, teeY, listOf(p1, p2, p3)) ?: continue
                                     if (!launchesLikeABall(path)) continue
                                     var seed = scoreSeed(frames, path, tol)
@@ -217,7 +209,7 @@ object BallFlightFitter {
      */
     private fun launchTimes(
         p1: Obs, p2: Obs, p3: Obs, d1: Double, d2: Double, teeX: Double, teeY: Double,
-        linearT0: Double, frameDt: Double, launchT: Double?
+        linearT0: Double, frameDt: Double, launchT: Double
     ): List<Double> {
         val guesses = ArrayList<Double>(2)
         guesses += linearT0
@@ -238,7 +230,7 @@ object BallFlightFitter {
         for (g in guesses) for (k in -1..3) {
             val t0 = g + k * frameDt / 6
             if (t0 >= p1.t - 1e-3) continue
-            if (launchT != null && abs(t0 - launchT) > 0.1) continue
+            if (abs(t0 - launchT) > 0.1) continue
             if (out.none { abs(it - t0) < frameDt / 12 }) out += t0
         }
         return out

@@ -29,6 +29,9 @@ data class BallCandidate(
 )
 
 /** Everything collected while recording, handed to [BallFlightFitter] after the shot. */
+/** The ball found where the user tapped: center in screen fractions, radius as a fraction of screen height. */
+data class TeeBall(val x: Float, val y: Float, val radius: Float)
+
 data class CapturedShot(
     val candidates: List<BallCandidate>,
     val teeX: Float,
@@ -62,7 +65,9 @@ class ShotCaptureSession(
     /** Keep raw frames so a shot can be saved and replayed offline. */
     private val keepFrames: Boolean = false,
     /** Called on the camera thread when the ball leaves the tee (true) or turns out to still be there (false). */
-    private val onLaunchDetected: ShotCaptureSession.(Boolean) -> Unit = {}
+    private val onLaunchDetected: ShotCaptureSession.(Boolean) -> Unit = {},
+    /** Called on the camera thread once the tapped spot has been checked: the ball found there, or null. */
+    private val onTeeMeasured: ShotCaptureSession.(TeeBall?) -> Unit = {}
 ) {
     private val lock = Any()
 
@@ -204,6 +209,7 @@ class ShotCaptureSession(
         if (!teeRefined) {
             refineTee(frame)
             teeRefined = true
+            onTeeMeasured(ballRadiusCells?.let { TeeBall(teeX, teeY, it / frame.height) })
         }
 
         if (history.isNotEmpty() && (history.last().frame.width != frame.width || history.last().frame.height != frame.height)) {
@@ -268,48 +274,157 @@ class ShotCaptureSession(
         val peak = frame.lum(seedX, seedY)
         if (peak - background < 25) return
 
-        // The ball's shaded underside is dimmer than its top, so the cut is well below the peak, but
-        // still far above a darker background.
-        val threshold = background + (peak - background) * 2 / 5
         val maxReach = max(10, (long * 0.15f).roundToInt())
+        val longRun = max(3, (maxReach * 0.12f).roundToInt())
+
+        // Where to draw the line between ball and ground depends on the scene: a low cut keeps the
+        // shaded underside of a ball on dark carpet, while on sunlit grass only a high cut stops the
+        // rays running off through bright blades. Try a few and keep the ball that stands out most.
+        var best: FloatArray? = null
+        var bestContrast = 0f
+        for (fraction in CUT_FRACTIONS) {
+            val threshold = (background + (peak - background) * fraction).roundToInt()
+            val circle = measureBall(frame, seedX, seedY, threshold, maxReach, longRun)
+            val contrast = circle?.let { contrastOf(frame, it[0], it[1], max(1f, it[2])) }
+            if (circle == null || contrast == null) continue
+            if (contrast > bestContrast) { bestContrast = contrast; best = circle }
+        }
+        val found = best ?: return
+        teeX = (found[0] + 0.5f) / w
+        teeY = (found[1] + 0.5f) / h
+        ballRadiusCells = max(1f, found[2])
+    }
+
+    /** The ball's circle as [centerX, centerY, radius] with pixels at or above [threshold] counting as ball. */
+    private fun measureBall(frame: LumaFrame, seedX: Int, seedY: Int, threshold: Int, maxReach: Int, longRun: Int): FloatArray? {
+        val w = frame.width
+        val h = frame.height
+        val long = max(w, h)
 
         // Walk rays out from the seed and note where each crosses into background: both where it first
         // dims (the edge, or the logo stripe) and where it stays dim (the edge, or past a gap into a
         // bright rug). The ball is the circle most of these points agree on; points from the logo, a
         // touching finger or a nearby bright patch don't fit it.
-        val longRun = max(3, (maxReach * 0.12f).roundToInt())
-        val edgeX = ArrayList<Float>()
-        val edgeY = ArrayList<Float>()
-        for (k in 0 until RAYS) {
-            val angle = 2 * PI * k / RAYS
-            val dx = kotlin.math.cos(angle).toFloat()
-            val dy = kotlin.math.sin(angle).toFloat()
-            var dark = 0
-            var firstEdge = -1
-            var r = 1
-            while (r <= maxReach) {
-                val x = (seedX + dx * r).roundToInt()
-                val y = (seedY + dy * r).roundToInt()
-                if (x !in 0 until w || y !in 0 until h) break
-                if (frame.lum(x, y) < threshold) {
-                    dark++
-                    if (dark == 2 && firstEdge < 0) firstEdge = r - 1
-                    if (dark >= longRun) {
-                        val lastEdge = r - dark + 1
-                        edgeX += seedX + dx * lastEdge; edgeY += seedY + dy * lastEdge
-                        if (firstEdge in 1 until lastEdge) { edgeX += seedX + dx * firstEdge; edgeY += seedY + dy * firstEdge }
-                        break
+        fun castRays(fromX: Float, fromY: Float): Pair<List<Float>, List<Float>> {
+            val edgeX = ArrayList<Float>()
+            val edgeY = ArrayList<Float>()
+            for (k in 0 until RAYS) {
+                val angle = 2 * PI * k / RAYS
+                val dx = kotlin.math.cos(angle).toFloat()
+                val dy = kotlin.math.sin(angle).toFloat()
+                var dark = 0
+                var firstEdge = -1
+                var r = 1
+                while (r <= maxReach) {
+                    val x = (fromX + dx * r).roundToInt()
+                    val y = (fromY + dy * r).roundToInt()
+                    if (x !in 0 until w || y !in 0 until h) break
+                    if (frame.lum(x, y) < threshold) {
+                        dark++
+                        if (dark == 2 && firstEdge < 0) firstEdge = r - 1
+                        if (dark >= longRun) {
+                            val lastEdge = r - dark + 1
+                            edgeX += fromX + dx * lastEdge; edgeY += fromY + dy * lastEdge
+                            if (firstEdge in 1 until lastEdge) { edgeX += fromX + dx * firstEdge; edgeY += fromY + dy * firstEdge }
+                            break
+                        }
+                    } else {
+                        dark = 0
                     }
-                } else {
-                    dark = 0
+                    r++
                 }
-                r++
+            }
+            return edgeX to edgeY
+        }
+
+        // Rays cast from the edge of the ball mostly measure how close the edge is, so start from the
+        // middle of the bright patch around the seed (kept small, so a touching rug can't pull it far).
+        val (startX, startY) = brightCentroid(frame, seedX, seedY, threshold, max(3, (long * 0.03f).roundToInt()))
+        var (xs, ys) = castRays(startX, startY)
+        var circle = fitCircle(xs, ys, startX, startY, maxReach.toFloat())
+        // Once more from the fitted center, where the rays are even all round.
+        circle?.let { c ->
+            if (frame.lum(c[0].roundToInt().coerceIn(0, w - 1), c[1].roundToInt().coerceIn(0, h - 1)) >= threshold) {
+                val again = castRays(c[0], c[1])
+                fitCircle(again.first, again.second, c[0], c[1], maxReach.toFloat())?.let { circle = it }
             }
         }
-        val circle = fitCircle(edgeX, edgeY, seedX.toFloat(), seedY.toFloat(), maxReach.toFloat()) ?: return
-        teeX = (circle[0] + 0.5f) / w
-        teeY = (circle[1] + 0.5f) / h
-        ballRadiusCells = max(1f, circle[2])
+        return circle
+    }
+
+    /** Center of the pixels at or above [threshold] connected to the seed, within [reach] of it. */
+    private fun brightCentroid(frame: LumaFrame, seedX: Int, seedY: Int, threshold: Int, reach: Int): Pair<Float, Float> {
+        val w = frame.width
+        val h = frame.height
+        val side = 2 * reach + 1
+        val visited = BooleanArray(side * side)
+        val stack = IntArray(side * side)
+        var sp = 0
+        stack[sp++] = reach * side + reach
+        visited[reach * side + reach] = true
+        var sumX = 0L
+        var sumY = 0L
+        var n = 0
+        while (sp > 0) {
+            val local = stack[--sp]
+            val x = seedX + local % side - reach
+            val y = seedY + local / side - reach
+            sumX += x; sumY += y; n++
+            for (dy in -1..1) for (dx in -1..1) {
+                val lx = local % side + dx
+                val ly = local / side + dy
+                if (lx !in 0 until side || ly !in 0 until side) continue
+                val nx = seedX + lx - reach
+                val ny = seedY + ly - reach
+                if (nx !in 0 until w || ny !in 0 until h) continue
+                val li = ly * side + lx
+                if (visited[li] || frame.lum(nx, ny) < threshold) continue
+                visited[li] = true
+                stack[sp++] = li
+            }
+        }
+        return sumX.toFloat() / n to sumY.toFloat() / n
+    }
+
+
+    /**
+     * How much brighter the circle is than the ground around it, or null if not clearly brighter.
+     * Sunlit grass is full of bright blades that a circle can be fitted to; a real ball stands out
+     * from its surroundings as a whole. The surroundings are judged by a brighter-than-typical level
+     * so a nearby shadow can't make a patch of sunlit grass look like a ball.
+     */
+    private fun contrastOf(frame: LumaFrame, cx: Float, cy: Float, r: Float): Float? {
+        val inside = ArrayList<Int>()
+        val ring = ArrayList<Int>()
+        val outer = max(r * 2.2f, r + 3f)
+        val inner = max(r * 1.4f, r + 1.5f)
+        val reach = outer.toInt() + 1
+        for (y in (cy - reach).toInt()..(cy + reach).toInt()) {
+            if (y !in 0 until frame.height) continue
+            for (x in (cx - reach).toInt()..(cx + reach).toInt()) {
+                if (x !in 0 until frame.width) continue
+                val d = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy))
+                if (d <= max(1f, r)) {
+                    inside.add(frame.lum(x, y))
+                } else if (d in inner..outer) {
+                    ring.add(frame.lum(x, y))
+                }
+            }
+        }
+        if (inside.isEmpty() || ring.size < 8) return null
+        // The brightest half inside: a far-off ball is only a few pixels, partly hidden by the club or
+        // shaded underneath, but those pixels are bright; a circle fitted to grass has none that are.
+        inside.sortDescending()
+        val top = inside.subList(0, max(1, inside.size / 2))
+        val insideLevel = top.sum().toFloat() / top.size
+        ring.sort()
+        val around = ring[ring.size * 65 / 100].toFloat()
+        // A ball only a few pixels across can't stand out as much: its edges blur into the grass.
+        val tiny = r <= 5f
+        val minContrast = if (tiny) MIN_TINY_BALL_CONTRAST else MIN_BALL_CONTRAST
+        val minRatio = if (tiny) 1.12f else 1.15f
+        if (insideLevel - around < minContrast || insideLevel < around * minRatio) return null
+        return insideLevel - around
     }
 
     /**
@@ -571,6 +686,9 @@ class ShotCaptureSession(
     companion object {
         private const val COARSE_SEARCH = 5
         private const val RAYS = 24
+        private const val MIN_BALL_CONTRAST = 30
+        private const val MIN_TINY_BALL_CONTRAST = 25
+        private val CUT_FRACTIONS = floatArrayOf(0.35f, 0.5f, 0.65f)
         private const val DIFF_THRESHOLD = 18
         private const val FAR = 4
         private const val KEPT_FIRST_FRAMES = 10

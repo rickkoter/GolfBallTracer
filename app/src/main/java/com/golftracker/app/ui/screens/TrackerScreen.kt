@@ -65,7 +65,7 @@ fun TrackerScreen(
     var tappedBallLocation by remember { mutableStateOf<ScreenPoint?>(null) }
 
     var showClubSheet by remember { mutableStateOf(false) }
-    var showStyleSheet by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     val currentLocation by locationManager.currentLocation.collectAsState()
     val gpsLaunch by locationManager.launchLocation.collectAsState()
@@ -79,6 +79,10 @@ fun TrackerScreen(
     // so the tracer sits over the swing. Until launch is seen, the still from the tap stands in.
     var tapStill by remember { mutableStateOf<Bitmap?>(null) }
     var shotStill by remember { mutableStateOf<Bitmap?>(null) }
+    // The ball found at the tap (sizes the marker), and whether the last tap missed the ball.
+    var teeBallRadius by remember { mutableStateOf<Float?>(null) }
+    var tapMissedBall by remember { mutableStateOf(false) }
+    var launchSeen by remember { mutableStateOf(false) }
     // How far the camera had moved when the still was taken; the tracer is shifted by it to line up.
     var stillShift by remember { mutableStateOf(0f to 0f) }
 
@@ -97,6 +101,24 @@ fun TrackerScreen(
                 } else {
                     shotStill = tapStill
                     stillShift = 0f to 0f
+                }
+            }
+        }, onTeeMeasured = { ball ->
+            scope.launch {
+                if (!isRecording) return@launch
+                if (ball != null) {
+                    // Snap the marker onto the ball that was found.
+                    tappedBallLocation = ScreenPoint(ball.x, ball.y)
+                    teeBallRadius = ball.radius
+                } else {
+                    // Nothing ball-like where the user tapped: without it the launch can't be seen,
+                    // so stop and ask for another tap rather than record a shot that can't work.
+                    reset()
+                    isRecording = false
+                    tappedBallLocation = null
+                    tapStill = null
+                    shotStill = null
+                    tapMissedBall = true
                 }
             }
         })
@@ -120,6 +142,8 @@ fun TrackerScreen(
         tapStill = null
         shotStill = null
         stillShift = 0f to 0f
+        teeBallRadius = null
+        tapMissedBall = false
     }
 
     // Stops recording and finds the ball's flight among everything that moved.
@@ -130,6 +154,7 @@ fun TrackerScreen(
         val flight = withContext(Dispatchers.Default) { BallFlightFitter.fit(shot) }
         detectedPoints = flight.shiftedToStill()
         isBallFlightMissing = flight.isEmpty()
+        launchSeen = shot.launchTimestampNs != null
         isAnalyzing = false
 
         val allFrames = shot.firstFrames + shot.recentFrames
@@ -202,6 +227,7 @@ fun TrackerScreen(
             isRecording = isRecording,
             isEditMode = isApexEditMode,
             tappedBallLocation = tappedBallLocation,
+            ballRadius = teeBallRadius,
             debugSpots = if (isBallFlightMissing) detectedSpots else emptyList(),
             onTapBallLocation = { pt ->
                 if (isAnalyzing) {
@@ -224,6 +250,8 @@ fun TrackerScreen(
                     tapStill = previewViewRef?.bitmap
                     shotStill = tapStill
                     stillShift = 0f to 0f
+                    teeBallRadius = null
+                    tapMissedBall = false
                     captureSession.arm(pt.x, pt.y)
                     isRecording = true
                     locationManager.recordLaunchLocation()
@@ -232,67 +260,48 @@ fun TrackerScreen(
             onPointAdjusted = { updated -> detectedPoints = updated }
         )
 
-        // 3. Top Action Controls (Flash, Style, Edit Apex & Tap Prompt Banner)
+        // 3. Top: shot info row with the settings gear, and the status banner below it
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                ShotTelemetryHUD(
+                    distanceYards = distanceYards,
+                    distanceMeters = distanceMeters,
+                    showShotDistance = isShotRevealed,
+                    clubName = selectedClub,
+                    gpsLaunch = gpsLaunch,
+                    gpsLanding = gpsLanding,
+                    onClubClick = { showClubSheet = true },
+                    onLockTeeClick = {
+                        val locked = locationManager.recordLaunchLocation()
+                        if (locked == null) locationManager.startLocationUpdates()
+                    },
+                    onLockLandingClick = {
+                        locationManager.recordLandingLocation()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
                 IconButton(
-                    onClick = { isFlashEnabled = !isFlashEnabled },
+                    onClick = { showSettings = true },
                     modifier = Modifier
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(GolfDarkCard.copy(alpha = 0.8f))
+                        .background(GolfDarkCard.copy(alpha = 0.85f))
                 ) {
-                    Icon(
-                        imageVector = if (isFlashEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                        contentDescription = "Flash",
-                        tint = if (isFlashEnabled) GolfNeonGold else Color.White
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Style Picker Pill
-                    Button(
-                        onClick = { showStyleSheet = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = GolfDarkCard.copy(alpha = 0.8f)),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(Color(selectedTracerStyle.colorHex))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(selectedTracerStyle.displayName, fontSize = 12.sp, color = Color.White)
-                    }
-
-                    // Edit Apex Curve Toggle
-                    IconButton(
-                        onClick = { isApexEditMode = !isApexEditMode },
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (isApexEditMode) GolfNeonCyan else GolfDarkCard.copy(alpha = 0.8f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Tune Curve",
-                            tint = if (isApexEditMode) GolfDarkBg else Color.White
-                        )
-                    }
+                    Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                 }
             }
 
-            // Automatic Tap Ball Prompt Banner
+            // Status banner; tapping it starts over
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (isRecording) GolfNeonRed.copy(alpha = 0.35f) else GolfDarkCard.copy(alpha = 0.85f)
@@ -314,127 +323,77 @@ fun TrackerScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                    Text(
-                        text = when {
-                            isAnalyzing -> "⏳ Finding ball flight…"
-                            isRecording && isBallLaunched -> "🔴 Ball launched! Tap screen when it lands"
-                            isRecording -> "🔴 RECORDING • Swing, then tap screen when done"
-                            isBallFlightMissing -> "⚠️ Ball flight not found • Tap here to retry"
-                            tappedBallLocation != null || detectedPoints.isNotEmpty() -> "⛳ Shot complete! Tap screen to show distance"
-                            else -> "⛳ Tap golf ball on screen to start recording"
-                        },
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (!isRecording && !isAnalyzing) {
-                        shotDiagnostics?.let {
-                            Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp)
+                        Text(
+                            text = when {
+                                isAnalyzing -> "⏳ Finding ball flight…"
+                                isRecording && isBallLaunched -> "🔴 Ball launched! Tap screen when it lands"
+                                isRecording && teeBallRadius == null -> "🔍 Looking for the ball…"
+                                isRecording -> "🔴 RECORDING • Ball locked • Swing, then tap screen when done"
+                                tapMissedBall -> "⚠️ No ball found there • Tap right on the ball"
+                                isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave • Tap here to retry"
+                                isBallFlightMissing -> "⚠️ Ball flight not found • Tap here to retry"
+                                tappedBallLocation != null || detectedPoints.isNotEmpty() -> "⛳ Shot complete! Tap screen to show distance"
+                                else -> "⛳ Tap golf ball on screen to start recording"
+                            },
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (!isRecording && !isAnalyzing) {
+                            shotDiagnostics?.let {
+                                Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp)
+                            }
                         }
-                    }
                     }
                 }
             }
         }
 
-        // 4. Bottom Dashboard & Streamlined Controls Container
-        Column(
+        // 4. Bottom: reset, plus Save & Review once a shot has been recorded
+        val shotReady = !isRecording && !isAnalyzing && (detectedPoints.isNotEmpty() || tappedBallLocation != null)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live Telemetry HUD
-            ShotTelemetryHUD(
-                distanceYards = distanceYards,
-                distanceMeters = distanceMeters,
-                showShotDistance = isShotRevealed,
-                clubName = selectedClub,
-                gpsLaunch = gpsLaunch,
-                gpsLanding = gpsLanding,
-                onClubClick = { showClubSheet = true },
-                onLockTeeClick = {
-                    val locked = locationManager.recordLaunchLocation()
-                    if (locked == null) locationManager.startLocationUpdates()
+            IconButton(
+                onClick = {
+                    resetShot()
+                    locationManager.reset()
                 },
-                onLockLandingClick = {
-                    locationManager.recordLandingLocation()
-                }
-            )
-
-            // Streamlined Control Row (Manual Record Button Removed)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(GolfDarkCard.copy(alpha = 0.85f))
             ) {
-                // Reset / Clear Ball Location Button
-                IconButton(
-                    onClick = {
-                        resetShot()
-                        locationManager.reset()
-                    },
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(GolfDarkCard.copy(alpha = 0.9f))
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Reset Shot", tint = Color.White)
-                }
+                Icon(Icons.Default.Refresh, contentDescription = "Reset Shot", tint = Color.White)
+            }
 
-                // Center Action Button: Complete & Review Shot (or Prompt to Tap)
+            if (shotReady) {
+                Spacer(modifier = Modifier.weight(1f))
                 Button(
-                    onClick = {
-                        if (!isAnalyzing && (isRecording || detectedPoints.isNotEmpty() || tappedBallLocation != null)) {
-                            completeShotRecording()
-                        }
-                    },
-                    shape = RoundedCornerShape(24.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isRecording || detectedPoints.isNotEmpty()) GolfNeonLime else GolfDarkCard.copy(alpha = 0.85f)
-                    ),
-                    modifier = Modifier
-                        .height(50.dp)
-                        .weight(1f)
-                        .padding(horizontal = 12.dp)
+                    onClick = { completeShotRecording() },
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = GolfNeonLime),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
                     Icon(
-                        imageVector = if (isRecording || detectedPoints.isNotEmpty()) Icons.Default.CheckCircle else Icons.Default.TouchApp,
+                        imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = if (isRecording || detectedPoints.isNotEmpty()) GolfDarkBg else GolfNeonCyan,
-                        modifier = Modifier.size(20.dp)
+                        tint = GolfDarkBg,
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isRecording || detectedPoints.isNotEmpty()) "Save Shot & Review" else "Tap Ball to Start",
-                        color = if (isRecording || detectedPoints.isNotEmpty()) GolfDarkBg else Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Save & Review", color = GolfDarkBg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
-
-                // Demo Optical Simulation Trigger
-                IconButton(
-                    onClick = {
-                        captureSession.reset()
-                        tapStill = null
-                        shotStill = null
-                        isRecording = false
-                        isBallFlightMissing = false
-                        tappedBallLocation = ScreenPoint(0.5f, 0.8f)
-                        detectedPoints = TrajectoryMath.generateDefaultTracer(1080f, 1920f)
-                        if (distanceYards == 0.0) locationManager.setManualDistanceYards(245.0)
-                        isShotRevealed = false
-                    },
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(GolfDarkCard.copy(alpha = 0.9f))
-                ) {
-                    Icon(Icons.Default.AutoFixHigh, contentDescription = "Simulate Flight", tint = GolfNeonCyan)
-                }
+                Spacer(modifier = Modifier.weight(1f))
+                // Balances the reset button so Save & Review sits in the middle.
+                Spacer(modifier = Modifier.size(44.dp))
             }
         }
     }
@@ -468,38 +427,96 @@ fun TrackerScreen(
         }
     }
 
-    // Tracer Style Selection Bottom Sheet
-    if (showStyleSheet) {
-        ModalBottomSheet(onDismissRequest = { showStyleSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text("Tracer Visual Style", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                TracerStyle.values().forEach { style ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedTracerStyle = style
-                                showStyleSheet = false
-                            }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
+    // Settings pop-up: flash, tracer style, curve tuning and the demo flight
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            containerColor = GolfDarkCard,
+            title = { Text("Settings", fontWeight = FontWeight.Bold, color = Color.White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SettingSwitch(
+                        icon = if (isFlashEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                        label = "Flash",
+                        checked = isFlashEnabled,
+                        onCheckedChange = { isFlashEnabled = it }
+                    )
+                    SettingSwitch(
+                        icon = Icons.Default.Edit,
+                        label = "Tune curve by dragging",
+                        checked = isApexEditMode,
+                        onCheckedChange = { isApexEditMode = it }
+                    )
+
+                    Text("Tracer style", color = GolfTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    TracerStyle.values().forEach { style ->
+                        Row(
                             modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(Color(style.colorHex))
-                        )
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text(style.displayName, fontSize = 16.sp, color = Color.White)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (style == selectedTracerStyle) GolfDarkSurface else Color.Transparent)
+                                .clickable { selectedTracerStyle = style }
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(style.colorHex))
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(style.displayName, fontSize = 15.sp, color = Color.White, modifier = Modifier.weight(1f))
+                            if (style == selectedTracerStyle) {
+                                Icon(Icons.Default.Check, contentDescription = "Selected", tint = GolfNeonLime)
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showSettings = false
+                            captureSession.reset()
+                            tapStill = null
+                            shotStill = null
+                            isRecording = false
+                            isBallFlightMissing = false
+                            tappedBallLocation = ScreenPoint(0.5f, 0.8f)
+                            detectedPoints = TrajectoryMath.generateDefaultTracer(1080f, 1920f)
+                            if (distanceYards == 0.0) locationManager.setManualDistanceYards(245.0)
+                            isShotRevealed = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = GolfNeonCyan, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Show demo flight", color = GolfNeonCyan)
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettings = false }) { Text("Done", color = GolfNeonLime) }
             }
-        }
+        )
+    }
+}
+
+@Composable
+private fun SettingSwitch(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = if (checked) GolfNeonGold else Color.White, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(label, fontSize = 15.sp, color = Color.White, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

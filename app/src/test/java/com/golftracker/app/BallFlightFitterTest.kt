@@ -133,9 +133,11 @@ class BallFlightFitterTest {
     }
 
     @Test
-    fun tracesDownTheLineShotWithoutLaunchDetection() {
-        for (seed in 1..5) {
-            assertFollows(::downTheLine, BallFlightFitter.fit(shot(::downTheLine, launchKnown = false, seed = seed)), 2.0)
+    fun noFlightWithoutLaunch() {
+        // Without seeing the ball leave the tee, a flight could be pieced together from anything.
+        for (seed in 1..3) {
+            assertTrue(BallFlightFitter.fit(shot(::downTheLine, launchKnown = false, seed = seed)).isEmpty())
+            assertTrue(BallFlightFitter.fit(shot(::chip, launchKnown = false, seed = seed, flightS = 1.3)).isEmpty())
         }
     }
 
@@ -143,13 +145,6 @@ class BallFlightFitterTest {
     fun tracesChipFromBehind() {
         for (seed in 1..5) {
             assertFollows(::chip, BallFlightFitter.fit(shot(::chip, launchKnown = true, seed = seed, flightS = 1.3)), 1.0)
-        }
-    }
-
-    @Test
-    fun tracesChipFromBehindWithoutLaunchDetection() {
-        for (seed in 1..5) {
-            assertFollows(::chip, BallFlightFitter.fit(shot(::chip, launchKnown = false, seed = seed, flightS = 1.3)), 1.0)
         }
     }
 
@@ -163,7 +158,8 @@ class BallFlightFitterTest {
     @Test
     fun findsNothingWhenThereIsNoBall() {
         for (seed in 1..5) {
-            val result = BallFlightFitter.fit(shot(null, launchKnown = false, seed = seed))
+            // A launch "seen" (say, the club hiding the ball) but no ball flying: clubhead, glove and specks only.
+            val result = BallFlightFitter.fit(shot(null, launchKnown = true, seed = seed))
             assertTrue("Invented a flight from noise (seed $seed)", result.isEmpty())
         }
     }

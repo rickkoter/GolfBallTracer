@@ -134,6 +134,43 @@ class ShotCaptureSessionTest {
         assertEquals(teeY, shot.teeY, 3f / h)
     }
 
+    /** Sunlit grass: bright and busy, like the backyard recordings. */
+    private fun brightGrass(seed: Int): IntArray {
+        val rnd = Random(seed)
+        return IntArray(w * h) { 165 + rnd.nextInt(-30, 31) }
+    }
+
+    private fun measure(px: IntArray, tapX: Float, tapY: Float): Pair<ShotCaptureSession, com.golftracker.app.tracker.TeeBall?> {
+        var measured: com.golftracker.app.tracker.TeeBall? = null
+        val session = ShotCaptureSession(onTeeMeasured = { measured = it })
+        session.arm(tapX, tapY)
+        session.process(LumaFrame(w, h, ByteArray(w * h) { px[it].coerceIn(0, 255).toByte() }, 0L))
+        return session to measured
+    }
+
+    @Test
+    fun findsSmallBallOnBrightGrass() {
+        for (seed in 40..44) {
+            val px = brightGrass(seed)
+            val scene = Scene(w, h, seed)
+            scene.disk(px, teeX * w, teeY * h, 3f, 240)
+            // Tapped a few pixels off to the side, as happens with a small ball.
+            val (_, ball) = measure(px, teeX + 6f / w, teeY - 3f / h)
+            assertNotNull("seed $seed", ball)
+            assertEquals(teeX, ball!!.x, 1.5f / w)
+            assertEquals(teeY, ball.y, 1.5f / h)
+            assertEquals(3f / h, ball.radius, 1.5f / h)
+        }
+    }
+
+    @Test
+    fun rejectsTapOnPlainGrass() {
+        for (seed in 50..59) {
+            val (_, ball) = measure(brightGrass(seed), 0.5f, 0.6f)
+            assertNull("found a ball in plain grass (seed $seed)", ball)
+        }
+    }
+
     @Test
     fun detectsLaunchWithinAFrame() {
         var reported = false

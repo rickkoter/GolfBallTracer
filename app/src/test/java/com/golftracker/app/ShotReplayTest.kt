@@ -57,7 +57,11 @@ class ShotReplayTest {
                 info.tapX, info.tapY, info.teeX, info.teeY, info.ballRadius?.let { "%.4f".format(it) } ?: "not found",
                 info.launchTimestampNs?.let { "at +%.2f s".format((it - frames.first().timestampNs) / 1e9) } ?: "not detected"))
             println("  ${shot.candidates.size} candidates on phone, tracer ${info.tracer.size} points")
-            println("  refit on this machine: ${BallFlightFitter.fit(shot).size} tracer points")
+            val refit = BallFlightFitter.fit(shot)
+            val startMs = frames.first().timestampNs / 1_000_000L
+            println("  refit on this machine: ${refit.size} tracer points" +
+                (if (refit.isEmpty()) "" else ", flight from +%.2f s to +%.2f s".format(
+                    (refit.first().timestampMs - startMs) / 1000.0, (refit.last().timestampMs - startMs) / 1000.0)))
 
             // Re-run detection from the raw frames, so detector changes can be tried on real footage.
             val session = ShotCaptureSession()

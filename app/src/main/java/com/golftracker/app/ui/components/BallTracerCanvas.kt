@@ -24,6 +24,8 @@ fun BallTracerCanvas(
     isEditMode: Boolean,
     tappedBallLocation: ScreenPoint?,
     onTapBallLocation: (ScreenPoint) -> Unit,
+    /** Radius of the ball found at the tap, as a fraction of the height; the marker is sized to it. */
+    ballRadius: Float? = null,
     /** Diagnostic: every spot the detector saw, colored from early (cyan) to late (red). */
     debugSpots: List<ScreenPoint> = emptyList(),
     onPointAdjusted: ((List<ScreenPoint>) -> Unit)? = null,
@@ -96,34 +98,49 @@ fun BallTracerCanvas(
             val tx = tappedBallLocation.x * width
             val ty = tappedBallLocation.y * height
 
-            drawCircle(
-                color = glowColor,
-                radius = (width * 0.055f) * pulseScale,
-                center = Offset(tx, ty),
-                style = Stroke(width = width * 0.005f)
-            )
-            drawCircle(
-                color = coreColor,
-                radius = width * 0.024f,
-                center = Offset(tx, ty),
-                style = Stroke(width = width * 0.008f)
-            )
-            drawCircle(
-                color = Color.White,
-                radius = width * 0.008f,
-                center = Offset(tx, ty)
-            )
+            if (ballRadius != null) {
+                // Locked on: a ring hugging the ball that was found, so it's clear what is being tracked.
+                val r = maxOf(ballRadius * height, width * 0.01f)
+                drawCircle(
+                    color = glowColor,
+                    radius = (r + width * 0.02f) * pulseScale,
+                    center = Offset(tx, ty),
+                    style = Stroke(width = width * 0.005f)
+                )
+                drawCircle(
+                    color = coreColor,
+                    radius = r + width * 0.006f,
+                    center = Offset(tx, ty),
+                    style = Stroke(width = width * 0.006f)
+                )
+            } else {
+                // Still checking the tapped spot.
+                drawCircle(
+                    color = glowColor,
+                    radius = (width * 0.055f) * pulseScale,
+                    center = Offset(tx, ty),
+                    style = Stroke(width = width * 0.005f)
+                )
+                drawCircle(
+                    color = coreColor,
+                    radius = width * 0.024f,
+                    center = Offset(tx, ty),
+                    style = Stroke(width = width * 0.008f)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = width * 0.008f,
+                    center = Offset(tx, ty)
+                )
 
-            val len = width * 0.035f
-            drawLine(color = coreColor, start = Offset(tx - len, ty), end = Offset(tx + len, ty), strokeWidth = 3f)
-            drawLine(color = coreColor, start = Offset(tx, ty - len), end = Offset(tx, ty + len), strokeWidth = 3f)
+                val len = width * 0.035f
+                drawLine(color = coreColor, start = Offset(tx - len, ty), end = Offset(tx + len, ty), strokeWidth = 3f)
+                drawLine(color = coreColor, start = Offset(tx, ty - len), end = Offset(tx, ty + len), strokeWidth = 3f)
+            }
         }
 
         // 2. Draw Trajectory Curve
-        val activePoints = if (points.isNotEmpty()) points else {
-            if (isRecording || tappedBallLocation != null) emptyList()
-            else TrajectoryMath.generateDefaultTracer(width, height)
-        }
+        val activePoints = points
 
         if (activePoints.size >= 2) {
             val path = Path()
