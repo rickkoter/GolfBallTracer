@@ -77,9 +77,22 @@ object BallFlightFitter {
 
     private class Seed(val path: Path, val score: Double, val inliers: List<Obs>)
 
+    /**
+     * How the ball left the tee, on screen, in "screen heights" with x measured from the left edge:
+     * position, velocity (per second), and d1, the rate its distance from the camera grows relative to
+     * its starting distance (1/s). [LaunchPhysics] turns this into a real speed and direction.
+     */
+    data class ScreenLaunch(val x: Double, val y: Double, val vx: Double, val vy: Double, val d1: Double, val aspect: Double)
+
+    /** The tracer plus the launch it was fitted from. */
+    data class Flight(val tracer: List<ScreenPoint>, val launch: ScreenLaunch)
+
     /** Returns the tracer from the tee along the ball's flight, or an empty list if no ball flight was found. */
-    fun fit(shot: CapturedShot): List<ScreenPoint> {
-        if (shot.candidates.isEmpty()) return emptyList()
+    fun fit(shot: CapturedShot): List<ScreenPoint> = fitFlight(shot)?.tracer ?: emptyList()
+
+    /** The ball's flight, or null if none was found. */
+    fun fitFlight(shot: CapturedShot): Flight? {
+        if (shot.candidates.isEmpty()) return null
         val aspect = shot.aspect.toDouble()
         val t0Ns = shot.candidates.minOf { it.timestampNs }
         val frames = shot.candidates
@@ -97,7 +110,7 @@ object BallFlightFitter {
         // Without seeing the ball leave the tee there's nothing to anchor the search to. Hunting through
         // the whole recording instead turned swaying trees and a golfer's head into flights, and a wrong
         // tracer is worse than none.
-        val launchT = shot.launchTimestampNs?.let { (it - t0Ns) / 1e9 } ?: return emptyList()
+        val launchT = shot.launchTimestampNs?.let { (it - t0Ns) / 1e9 } ?: return null
         val seeds = findSeeds(frames, frameDt, teeX, teeY, tol, launchT)
 
         // Refining can turn a seed built from three awkwardly spaced sightings into the full flight,
@@ -107,9 +120,13 @@ object BallFlightFitter {
             val track = grow(frames, frameDt, refined, tol)
             if (track.size < MIN_TRACK_FRAMES) continue
             if (track.last().t - refined.path.t0 < MIN_TRACKED_FLIGHT_S) continue
-            return toTracer(refined, track, teeX, teeY, t0Ns, aspect)
+            val path = refined.path
+            return Flight(
+                toTracer(refined, track, teeX, teeY, t0Ns, aspect),
+                ScreenLaunch(path.x0, path.y0, path.launchVx, path.launchVy, path.d1, aspect)
+            )
         }
-        return emptyList()
+        return null
     }
 
     private fun toTracer(seed: Seed, track: List<Obs>, teeX: Double, teeY: Double, t0Ns: Long, aspect: Double): List<ScreenPoint> {

@@ -24,12 +24,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.golftracker.app.export.ShotDebugExporter
 import com.golftracker.app.export.SnapshotExporter
+import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.*
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.tracker.BallFlightFitter
+import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.ShotCaptureSession
 import com.golftracker.app.tracker.TrajectoryMath
+import com.golftracker.app.ui.components.BallLocatorDialog
 import com.golftracker.app.ui.components.BallTracerCanvas
 import com.golftracker.app.ui.components.CameraPreviewView
 import com.golftracker.app.ui.components.ShotTelemetryHUD
@@ -77,6 +80,20 @@ fun TrackerScreen(
 
     // The finished shot is shown on a still from when the ball took off rather than on the live camera,
     // so the tracer sits over the swing. Until launch is seen, the still from the tap stands in.
+    // For the ball locator: which way the phone faced while filming, and the camera's field of view.
+    val orientation = remember { DeviceOrientation(context) }
+    DisposableEffect(orientation) {
+        orientation.start()
+        onDispose { orientation.stop() }
+    }
+    val heading by orientation.headingDegrees.collectAsState()
+    var verticalFov by remember { mutableStateOf<Double?>(null) }
+    var tapRotation by remember { mutableStateOf<FloatArray?>(null) }
+    var launchRotation by remember { mutableStateOf<FloatArray?>(null) }
+    var ballLanding by remember { mutableStateOf<LaunchPhysics.Landing?>(null) }
+    var locatorProblem by remember { mutableStateOf<String?>(null) }
+    var showLocator by remember { mutableStateOf(false) }
+
     var tapStill by remember { mutableStateOf<Bitmap?>(null) }
     var shotStill by remember { mutableStateOf<Bitmap?>(null) }
     // The ball found at the tap (sizes the marker), and whether the last tap missed the ball.
@@ -91,8 +108,10 @@ fun TrackerScreen(
         ShotCaptureSession(keepFrames = true, onLaunchDetected = { launched ->
             isBallLaunched = launched
             val shift = cameraShift()
+            val rotation = if (launched) orientation.rotationMatrix() else null
             // Called on the camera thread; grab the preview on the main thread.
             scope.launch {
+                launchRotation = rotation
                 if (launched) {
                     previewViewRef?.bitmap?.let {
                         shotStill = it
@@ -144,6 +163,32 @@ fun TrackerScreen(
         stillShift = 0f to 0f
         teeBallRadius = null
         tapMissedBall = false
+        tapRotation = null
+        launchRotation = null
+        ballLanding = null
+        locatorProblem = null
+    }
+
+    // Where the ball came down, worked out from its launch on camera, for the ball locator.
+    fun estimateLanding(fitted: BallFlightFitter.Flight?, ballRadius: Float?) {
+        ballLanding = null
+        val tee = gpsLaunch
+        val rotation = launchRotation ?: tapRotation
+        val fov = verticalFov
+        locatorProblem = when {
+            fitted == null -> "No ball flight was traced, so there's nothing to locate."
+            tee == null -> "There was no GPS fix when you tapped the ball. Wait for GPS before the next shot."
+            rotation == null -> "The phone's compass wasn't available while filming."
+            fov == null -> "The camera's field of view isn't known on this phone."
+            ballRadius == null -> "The ball on the tee wasn't measured."
+            else -> null
+        }
+        if (locatorProblem != null || fitted == null || tee == null || rotation == null || fov == null || ballRadius == null) return
+        val declination = android.hardware.GeomagneticField(
+            tee.latitude.toFloat(), tee.longitude.toFloat(), tee.altitude.toFloat(), System.currentTimeMillis()
+        ).declination.toDouble()
+        ballLanding = LaunchPhysics.estimateLanding(fitted.launch, ballRadius, fov, rotation, declination, tee)
+        if (ballLanding == null) locatorProblem = "The launch speed didn't look like a real shot, so there's no landing estimate."
     }
 
     // Stops recording and finds the ball's flight among everything that moved.
@@ -151,8 +196,10 @@ fun TrackerScreen(
         isRecording = false
         val shot = captureSession.stop()
         isAnalyzing = true
-        val flight = withContext(Dispatchers.Default) { BallFlightFitter.fit(shot) }
+        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitFlight(shot) }
+        val flight = fitted?.tracer ?: emptyList()
         detectedPoints = flight.shiftedToStill()
+        estimateLanding(fitted, shot.ballRadius)
         isBallFlightMissing = flight.isEmpty()
         launchSeen = shot.launchTimestampNs != null
         isAnalyzing = false
@@ -206,7 +253,8 @@ fun TrackerScreen(
         CameraPreviewView(
             isFlashEnabled = isFlashEnabled,
             captureSession = captureSession,
-            onPreviewReady = { pView -> previewViewRef = pView }
+            onPreviewReady = { pView -> previewViewRef = pView },
+            onFieldOfView = { verticalFov = it }
         )
 
         // Once recording stops, freeze on the still from launch (or from the tap).
@@ -252,6 +300,10 @@ fun TrackerScreen(
                     stillShift = 0f to 0f
                     teeBallRadius = null
                     tapMissedBall = false
+                    tapRotation = orientation.rotationMatrix()
+                    launchRotation = null
+                    ballLanding = null
+                    locatorProblem = null
                     captureSession.arm(pt.x, pt.y)
                     isRecording = true
                     locationManager.recordLaunchLocation()
@@ -357,7 +409,7 @@ fun TrackerScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
@@ -375,6 +427,19 @@ fun TrackerScreen(
 
             if (shotReady) {
                 Spacer(modifier = Modifier.weight(1f))
+                if (detectedPoints.isNotEmpty()) {
+                    Button(
+                        onClick = { showLocator = true },
+                        shape = RoundedCornerShape(22.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = GolfDarkCard.copy(alpha = 0.9f)),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        Icon(Icons.Default.MyLocation, contentDescription = null, tint = GolfNeonCyan, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Locate Ball", color = GolfNeonCyan, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
                 Button(
                     onClick = { completeShotRecording() },
                     shape = RoundedCornerShape(22.dp),
@@ -391,9 +456,6 @@ fun TrackerScreen(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Save & Review", color = GolfDarkBg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                // Balances the reset button so Save & Review sits in the middle.
-                Spacer(modifier = Modifier.size(44.dp))
             }
         }
     }
@@ -425,6 +487,16 @@ fun TrackerScreen(
                 }
             }
         }
+    }
+
+    if (showLocator) {
+        BallLocatorDialog(
+            landing = ballLanding,
+            unavailableReason = locatorProblem,
+            here = currentLocation,
+            headingDegrees = heading,
+            onDismiss = { showLocator = false }
+        )
     }
 
     // Settings pop-up: flash, tracer style, curve tuning and the demo flight
@@ -485,6 +557,27 @@ fun TrackerScreen(
                             detectedPoints = TrajectoryMath.generateDefaultTracer(1080f, 1920f)
                             if (distanceYards == 0.0) locationManager.setManualDistanceYards(245.0)
                             isShotRevealed = false
+                            // A pretend landing 30 m ahead of where the phone points, to try the ball locator.
+                            val here = currentLocation
+                            val facing = heading
+                            if (here != null && facing != null) {
+                                val declination = android.hardware.GeomagneticField(
+                                    here.latitude.toFloat(), here.longitude.toFloat(), here.altitude.toFloat(), System.currentTimeMillis()
+                                ).declination
+                                val bearing = LaunchPhysics.normalizeDegrees((facing + declination).toDouble())
+                                ballLanding = LaunchPhysics.Landing(
+                                    position = LaunchPhysics.destination(here, bearing, 30.0),
+                                    bearingDegrees = bearing,
+                                    carryMeters = 22.0,
+                                    totalMeters = 30.0,
+                                    launchSpeedMps = 18.0,
+                                    launchAngleDegrees = 32.0
+                                )
+                                locatorProblem = null
+                            } else {
+                                ballLanding = null
+                                locatorProblem = "The demo needs a GPS fix and the compass to place a pretend ball."
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

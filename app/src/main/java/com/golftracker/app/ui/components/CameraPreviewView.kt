@@ -1,5 +1,9 @@
 package com.golftracker.app.ui.components
 
+import android.hardware.camera2.CameraCharacteristics
+import androidx.annotation.OptIn
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -21,6 +25,8 @@ fun CameraPreviewView(
     isFlashEnabled: Boolean,
     captureSession: ShotCaptureSession,
     onPreviewReady: (PreviewView) -> Unit,
+    /** The camera's field of view across the screen's height, in radians, once known. */
+    onFieldOfView: (Double) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -79,6 +85,7 @@ fun CameraPreviewView(
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         group
                     )
+                    camera?.let { verticalFieldOfView(it)?.let(onFieldOfView) }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -102,4 +109,20 @@ fun CameraPreviewView(
         },
         modifier = modifier.fillMaxSize()
     )
+}
+
+/**
+ * Field of view across the screen's height with the phone upright. The 16:9 stream keeps the
+ * sensor's full long side, which runs along the screen's height, and the screen's narrower shape is
+ * cropped from the sides, so this is the angle the sensor's long side covers.
+ */
+@OptIn(ExperimentalCamera2Interop::class)
+private fun verticalFieldOfView(camera: Camera): Double? = try {
+    val info = Camera2CameraInfo.from(camera.cameraInfo)
+    val focal = info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+    val sensor = info.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+    if (focal == null || sensor == null || focal <= 0f) null
+    else 2 * kotlin.math.atan(maxOf(sensor.width, sensor.height) / (2.0 * focal))
+} catch (e: Exception) {
+    null
 }
