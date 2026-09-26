@@ -24,6 +24,8 @@ fun BallTracerCanvas(
     isEditMode: Boolean,
     tappedBallLocation: ScreenPoint?,
     onTapBallLocation: (ScreenPoint) -> Unit,
+    /** Diagnostic: every spot the detector saw, colored from early (cyan) to late (red). */
+    debugSpots: List<ScreenPoint> = emptyList(),
     onPointAdjusted: ((List<ScreenPoint>) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -75,6 +77,19 @@ fun BallTracerCanvas(
     ) {
         val width = size.width
         val height = size.height
+
+        if (debugSpots.isNotEmpty()) {
+            val first = debugSpots.minOf { it.timestampMs }
+            val span = maxOf(1L, debugSpots.maxOf { it.timestampMs } - first).toFloat()
+            for (spot in debugSpots) {
+                val f = (spot.timestampMs - first) / span
+                drawCircle(
+                    color = lerp(Color.Cyan, Color.Red, f).copy(alpha = 0.7f),
+                    radius = width * 0.006f,
+                    center = Offset(spot.x * width, spot.y * height)
+                )
+            }
+        }
 
         // 1. Draw Tapped Ball Target Reticle if ball origin is locked & no active curve recorded yet
         if (tappedBallLocation != null && points.isEmpty()) {

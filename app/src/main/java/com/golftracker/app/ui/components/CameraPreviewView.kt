@@ -1,7 +1,8 @@
 package com.golftracker.app.ui.components
 
-import android.graphics.Bitmap
 import androidx.camera.core.*
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,16 +12,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.tracker.BallTrackerAnalyzer
+import com.golftracker.app.tracker.ShotCaptureSession
 import java.util.concurrent.Executors
 
 @Composable
 fun CameraPreviewView(
-    isRecording: Boolean,
     isFlashEnabled: Boolean,
-    tappedBallLocation: ScreenPoint?,
-    onBallDetected: (ScreenPoint) -> Unit,
+    captureSession: ShotCaptureSession,
     onPreviewReady: (PreviewView) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -29,25 +28,10 @@ fun CameraPreviewView(
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
 
-    val analyzer = remember(onBallDetected) { BallTrackerAnalyzer(onBallDetected) }
-
-    LaunchedEffect(tappedBallLocation) {
-        if (tappedBallLocation != null) {
-            analyzer.setInitialBallLocation(tappedBallLocation.x, tappedBallLocation.y)
-        }
-    }
-
-    LaunchedEffect(isRecording) {
-        if (isRecording) {
-            if (tappedBallLocation != null) {
-                analyzer.setInitialBallLocation(tappedBallLocation.x, tappedBallLocation.y)
-            } else {
-                analyzer.resetTracker()
-            }
-        }
-    }
+    val analyzer = remember(captureSession) { BallTrackerAnalyzer(captureSession) }
 
     DisposableEffect(Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -60,41 +44,60 @@ fun CameraPreviewView(
         }
     }
 
+    // Bind once the view has been laid out, since its ViewPort depends on its size.
+    DisposableEffect(cameraProvider, previewView, analyzer) {
+        val provider = cameraProvider
+        val view = previewView
+        if (provider != null && view != null) {
+            view.post {
+                val selector = ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                    .build()
+
+                val preview = Preview.Builder()
+                    .setResolutionSelector(selector)
+                    .build()
+                    .also { it.setSurfaceProvider(view.surfaceProvider) }
+
+                val imageAnalyzer = ImageAnalysis.Builder()
+                    .setResolutionSelector(selector)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also { it.setAnalyzer(cameraExecutor, analyzer) }
+
+                // Sharing the preview's ViewPort gives the analysis frames the same crop as the screen.
+                val group = UseCaseGroup.Builder()
+                    .addUseCase(preview)
+                    .addUseCase(imageAnalyzer)
+                    .apply { view.viewPort?.let { setViewPort(it) } }
+                    .build()
+
+                try {
+                    provider.unbindAll()
+                    camera = provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        group
+                    )
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        onDispose { }
+    }
+
+    LaunchedEffect(camera, isFlashEnabled) {
+        camera?.cameraControl?.enableTorch(isFlashEnabled)
+    }
+
     AndroidView(
         factory = { ctx ->
             PreviewView(ctx).apply {
                 scaleType = PreviewView.ScaleType.FILL_CENTER
                 implementationMode = PreviewView.ImplementationMode.PERFORMANCE
                 onPreviewReady(this)
-            }
-        },
-        update = { previewView ->
-            val provider = cameraProvider ?: return@AndroidView
-
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            val imageAnalyzer = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor, analyzer)
-                }
-
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-            try {
-                provider.unbindAll()
-                camera = provider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview,
-                    imageAnalyzer
-                )
-                camera?.cameraControl?.enableTorch(isFlashEnabled)
-            } catch (e: Exception) {
-                e.printStackTrace()
+                previewView = this
             }
         },
         modifier = modifier.fillMaxSize()

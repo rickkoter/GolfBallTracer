@@ -2,6 +2,7 @@ package com.golftracker.app.ui.screens
 
 import android.graphics.Bitmap
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,20 +16,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.golftracker.app.export.ShotDebugExporter
 import com.golftracker.app.export.SnapshotExporter
 import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.*
 import com.golftracker.app.repository.ShotRepository
+import com.golftracker.app.tracker.BallFlightFitter
+import com.golftracker.app.tracker.ShotCaptureSession
 import com.golftracker.app.tracker.TrajectoryMath
 import com.golftracker.app.ui.components.BallTracerCanvas
 import com.golftracker.app.ui.components.CameraPreviewView
 import com.golftracker.app.ui.components.ShotTelemetryHUD
 import com.golftracker.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +52,12 @@ fun TrackerScreen(
     var isFlashEnabled by remember { mutableStateOf(false) }
     var isApexEditMode by remember { mutableStateOf(false) }
     var isShotRevealed by remember { mutableStateOf(false) }
+    var isBallLaunched by remember { mutableStateOf(false) }
+    var isAnalyzing by remember { mutableStateOf(false) }
+    var isBallFlightMissing by remember { mutableStateOf(false) }
+    // Diagnostics from the last shot: what the detector saw, shown when no flight is found.
+    var shotDiagnostics by remember { mutableStateOf<String?>(null) }
+    var detectedSpots by remember { mutableStateOf<List<ScreenPoint>>(emptyList()) }
 
     var selectedClub by remember { mutableStateOf(ClubType.DRIVER.displayName) }
     var selectedTracerStyle by remember { mutableStateOf(TracerStyle.PRO_LIME) }
@@ -61,11 +75,86 @@ fun TrackerScreen(
 
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
+    // The finished shot is shown on a still from when the ball took off rather than on the live camera,
+    // so the tracer sits over the swing. Until launch is seen, the still from the tap stands in.
+    var tapStill by remember { mutableStateOf<Bitmap?>(null) }
+    var shotStill by remember { mutableStateOf<Bitmap?>(null) }
+    // How far the camera had moved when the still was taken; the tracer is shifted by it to line up.
+    var stillShift by remember { mutableStateOf(0f to 0f) }
+
+    // Collects everything that moves while recording; the ball is picked out after the shot.
+    val captureSession = remember {
+        ShotCaptureSession(keepFrames = true, onLaunchDetected = { launched ->
+            isBallLaunched = launched
+            val shift = cameraShift()
+            // Called on the camera thread; grab the preview on the main thread.
+            scope.launch {
+                if (launched) {
+                    previewViewRef?.bitmap?.let {
+                        shotStill = it
+                        stillShift = shift
+                    }
+                } else {
+                    shotStill = tapStill
+                    stillShift = 0f to 0f
+                }
+            }
+        })
+    }
+
+    fun List<ScreenPoint>.shiftedToStill(): List<ScreenPoint> {
+        val (dx, dy) = stillShift
+        return if (dx == 0f && dy == 0f) this else map { it.copy(x = it.x + dx, y = it.y + dy) }
+    }
+
+    fun resetShot() {
+        captureSession.reset()
+        tappedBallLocation = null
+        isRecording = false
+        detectedPoints = emptyList()
+        isShotRevealed = false
+        isBallLaunched = false
+        isBallFlightMissing = false
+        shotDiagnostics = null
+        detectedSpots = emptyList()
+        tapStill = null
+        shotStill = null
+        stillShift = 0f to 0f
+    }
+
+    // Stops recording and finds the ball's flight among everything that moved.
+    suspend fun analyzeRecordedShot() {
+        isRecording = false
+        val shot = captureSession.stop()
+        isAnalyzing = true
+        val flight = withContext(Dispatchers.Default) { BallFlightFitter.fit(shot) }
+        detectedPoints = flight.shiftedToStill()
+        isBallFlightMissing = flight.isEmpty()
+        isAnalyzing = false
+
+        val allFrames = shot.firstFrames + shot.recentFrames
+        val seconds = if (allFrames.size > 1) (allFrames.last().timestampNs - allFrames.first().timestampNs) / 1e9 else 0.0
+        val fps = if (seconds > 0) shot.framesProcessed / seconds else 0.0
+        val stats = "%d spots • %.1f s at %.0f fps • ball on tee %s • launch %s".format(
+            shot.candidates.size, seconds, fps,
+            if (shot.ballRadius != null) "✓" else "✗",
+            if (shot.launchTimestampNs != null) "✓" else "✗"
+        )
+        detectedSpots = shot.candidates.map { ScreenPoint(it.x, it.y, it.timestampNs / 1_000_000L) }.shiftedToStill()
+        shotDiagnostics = "$stats\nSaving recording…"
+        // Frames are large; save in the background without holding up the result.
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) { ShotDebugExporter.save(context, shot, flight) }
+            shotDiagnostics = "$stats\n" + (saved?.let { "Saved $it" } ?: "Couldn't save recording")
+        }
+    }
+
     // Helper function to complete shot recording and open review screen
     val completeShotRecording: () -> Unit = {
-        isRecording = false
         scope.launch {
-            val bitmap = previewViewRef?.bitmap ?: Bitmap.createBitmap(
+            if (isRecording) analyzeRecordedShot()
+            isShotRevealed = true
+            val bitmap = shotStill ?: previewViewRef?.bitmap ?: Bitmap.createBitmap(
                 1080, 1920, Bitmap.Config.ARGB_8888
             )
 
@@ -90,16 +179,21 @@ fun TrackerScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Camera Preview Surface
         CameraPreviewView(
-            isRecording = isRecording,
             isFlashEnabled = isFlashEnabled,
-            tappedBallLocation = tappedBallLocation,
-            onBallDetected = { pt ->
-                if (isRecording) {
-                    detectedPoints = detectedPoints + pt
-                }
-            },
+            captureSession = captureSession,
             onPreviewReady = { pView -> previewViewRef = pView }
         )
+
+        // Once recording stops, freeze on the still from launch (or from the tap).
+        val still = shotStill
+        if (still != null && !isRecording) {
+            Image(
+                bitmap = still.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // 2. Ball Tracer & Tap-to-Lock Target Overlay
         BallTracerCanvas(
@@ -108,17 +202,30 @@ fun TrackerScreen(
             isRecording = isRecording,
             isEditMode = isApexEditMode,
             tappedBallLocation = tappedBallLocation,
+            debugSpots = if (isBallFlightMissing) detectedSpots else emptyList(),
             onTapBallLocation = { pt ->
-                if (isRecording) {
-                    isRecording = false
-                    isShotRevealed = true
+                if (isAnalyzing) {
+                    // Ignore taps until the flight has been worked out.
+                } else if (isRecording) {
+                    scope.launch {
+                        analyzeRecordedShot()
+                        isShotRevealed = true
+                    }
                 } else if (tappedBallLocation != null || detectedPoints.isNotEmpty()) {
                     isShotRevealed = true
                 } else {
                     tappedBallLocation = pt
-                    isRecording = true
                     detectedPoints = emptyList()
                     isShotRevealed = false
+                    isBallLaunched = false
+                    isBallFlightMissing = false
+                    shotDiagnostics = null
+                    detectedSpots = emptyList()
+                    tapStill = previewViewRef?.bitmap
+                    shotStill = tapStill
+                    stillShift = 0f to 0f
+                    captureSession.arm(pt.x, pt.y)
+                    isRecording = true
                     locationManager.recordLaunchLocation()
                 }
             },
@@ -193,12 +300,7 @@ fun TrackerScreen(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .clickable {
-                        tappedBallLocation = null
-                        isRecording = false
-                        detectedPoints = emptyList()
-                        isShotRevealed = false
-                    }
+                    .clickable { resetShot() }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -211,12 +313,26 @@ fun TrackerScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                    Column {
                     Text(
-                        text = if (isRecording) "🔴 RECORDING • Tap screen when done!" else if (tappedBallLocation != null || detectedPoints.isNotEmpty()) "⛳ Shot complete! Tap screen to show distance" else "⛳ Tap golf ball on screen to start recording",
+                        text = when {
+                            isAnalyzing -> "⏳ Finding ball flight…"
+                            isRecording && isBallLaunched -> "🔴 Ball launched! Tap screen when it lands"
+                            isRecording -> "🔴 RECORDING • Swing, then tap screen when done"
+                            isBallFlightMissing -> "⚠️ Ball flight not found • Tap here to retry"
+                            tappedBallLocation != null || detectedPoints.isNotEmpty() -> "⛳ Shot complete! Tap screen to show distance"
+                            else -> "⛳ Tap golf ball on screen to start recording"
+                        },
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    if (!isRecording && !isAnalyzing) {
+                        shotDiagnostics?.let {
+                            Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp)
+                        }
+                    }
+                    }
                 }
             }
         }
@@ -257,10 +373,7 @@ fun TrackerScreen(
                 // Reset / Clear Ball Location Button
                 IconButton(
                     onClick = {
-                        detectedPoints = emptyList()
-                        tappedBallLocation = null
-                        isRecording = false
-                        isShotRevealed = false
+                        resetShot()
                         locationManager.reset()
                     },
                     modifier = Modifier
@@ -274,7 +387,7 @@ fun TrackerScreen(
                 // Center Action Button: Complete & Review Shot (or Prompt to Tap)
                 Button(
                     onClick = {
-                        if (isRecording || detectedPoints.isNotEmpty() || tappedBallLocation != null) {
+                        if (!isAnalyzing && (isRecording || detectedPoints.isNotEmpty() || tappedBallLocation != null)) {
                             completeShotRecording()
                         }
                     },
@@ -305,7 +418,11 @@ fun TrackerScreen(
                 // Demo Optical Simulation Trigger
                 IconButton(
                     onClick = {
+                        captureSession.reset()
+                        tapStill = null
+                        shotStill = null
                         isRecording = false
+                        isBallFlightMissing = false
                         tappedBallLocation = ScreenPoint(0.5f, 0.8f)
                         detectedPoints = TrajectoryMath.generateDefaultTracer(1080f, 1920f)
                         if (distanceYards == 0.0) locationManager.setManualDistanceYards(245.0)

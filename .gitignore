@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Shot recordings pulled from the phone for replay tests
+app/shots/
