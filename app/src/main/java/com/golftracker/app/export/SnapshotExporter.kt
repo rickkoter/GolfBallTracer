@@ -160,7 +160,7 @@ object SnapshotExporter {
         }
 
         var textY = cardTop + (cardHeight * 0.25f)
-        canvas.drawText("⚡ GOLFBALLTRACER", cardLeft + 24f, textY, titlePaint)
+        canvas.drawText("⚡ GolfBallTracer", cardLeft + 24f, textY, titlePaint)
 
         textY += (cardHeight * 0.35f)
         val distString = "%.0f YDS".format(shot.distanceYards)

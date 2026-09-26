@@ -74,7 +74,7 @@ fun ShotTelemetryHUD(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "GOLFBALLTRACER",
+                        text = "GolfBallTracer",
                         color = GolfNeonLime,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
