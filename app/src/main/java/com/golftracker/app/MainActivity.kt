@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -165,13 +166,16 @@ fun MainAppScreen(
                     )
                 }
                 AppTab.REVIEW -> {
+                    // Leaving a shot's review goes to the shot history, however the review was opened.
+                    BackHandler { currentTab = AppTab.HISTORY }
                     reviewShotRecord?.let { shot ->
                         ShotReviewScreen(
                             shotRecord = shot,
-                            onBack = { currentTab = AppTab.TRACKER }
+                            onBack = { currentTab = AppTab.HISTORY },
+                            onRecordNext = { currentTab = AppTab.TRACKER }
                         )
                     } ?: run {
-                        currentTab = AppTab.TRACKER
+                        currentTab = AppTab.HISTORY
                     }
                 }
             }

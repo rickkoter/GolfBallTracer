@@ -30,7 +30,8 @@ import com.golftracker.app.ui.theme.*
 @Composable
 fun ShotReviewScreen(
     shotRecord: ShotRecord,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onRecordNext: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -182,7 +183,7 @@ fun ShotReviewScreen(
             }
 
             Button(
-                onClick = onBack,
+                onClick = onRecordNext,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = GolfNeonLime),
                 modifier = Modifier

@@ -1,5 +1,7 @@
 package com.golftracker.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.SportsGolf
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,14 +19,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.golftracker.app.export.ShotHistoryCsv
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -34,7 +41,30 @@ fun HistoryScreen(
     onSelectShot: (ShotRecord) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val shots by repository.shots.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+
+    // Android's "save as" picker: the user chooses a folder on the phone or in Google Drive.
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val toExport = shots
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(ShotHistoryCsv.build(toExport).toByteArray())
+                    } != null
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
+            }
+            snackbar.showSnackbar(
+                if (ok) "Exported ${toExport.size} shot${if (toExport.size == 1) "" else "s"}" else "Couldn't save the export"
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         repository.loadShots()
@@ -48,9 +78,22 @@ fun HistoryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Shot History & Stats", color = Color.White, fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(
+                        onClick = { exportLauncher.launch(ShotHistoryCsv.fileName()) },
+                        enabled = shots.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.Default.FileDownload,
+                            contentDescription = "Export shot history",
+                            tint = if (shots.isNotEmpty()) GolfNeonLime else GolfTextMuted
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = GolfDarkBg)
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         containerColor = GolfDarkBg
     ) { padding ->
         Column(
