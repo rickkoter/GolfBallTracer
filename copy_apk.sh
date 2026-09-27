@@ -3,7 +3,7 @@ set -e
 
 # Configuration (relative paths used for root directory project files)
 SRC_APK="app/build/outputs/apk/debug/app-debug.apk"
-DEST_DIR="/Users/rek/Library/CloudStorage/GoogleDrive-rickkoter@gmail.com/My Drive/Apps"
+DEST_DIR="/Users/rek/Library/CloudStorage/GoogleDrive-rickkoter@gmail.com/My Drive/KoterApps"
 ARCHIVE_DIR="$DEST_DIR/old"
 
 # 1. Ensure source APK exists
