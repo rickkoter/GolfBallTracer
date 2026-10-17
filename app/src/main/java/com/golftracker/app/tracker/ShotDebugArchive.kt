@@ -17,12 +17,15 @@ import java.util.zip.ZipOutputStream
  *
  *   shot.json   – settings, detections and the result
  *   frames.bin  – the raw analysis frames: count, then per frame timestamp, width, height, pixels
+ *
+ * A shared shot recording (see ShotBundle) holds these two plus the video and tracking.json, and
+ * reads the same way: other entries are skipped.
  */
 object ShotDebugArchive {
 
     @Serializable
     data class Info(
-        val version: Int = 1,
+        val version: Int = 2,
         val device: String,
         val tapX: Float,
         val tapY: Float,
@@ -36,7 +39,9 @@ object ShotDebugArchive {
         /** Candidates as [x, y, score] with timestamps in a parallel list, to keep the file small. */
         val candidates: List<List<Float>>,
         val candidateTimestampsNs: List<Long>,
-        val tracer: List<List<Float>>
+        val tracer: List<List<Float>>,
+        val impactTimestampNs: Long? = null,
+        val heardImpact: Boolean = false
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -55,7 +60,9 @@ object ShotDebugArchive {
             firstFrameCount = shot.firstFrames.size,
             candidates = shot.candidates.map { listOf(it.x, it.y, it.score) },
             candidateTimestampsNs = shot.candidates.map { it.timestampNs },
-            tracer = tracer.map { listOf(it.x, it.y) }
+            tracer = tracer.map { listOf(it.x, it.y) },
+            impactTimestampNs = shot.impactTimestampNs,
+            heardImpact = shot.heardImpact
         )
         ZipOutputStream(out.buffered()).use { zip ->
             zip.putNextEntry(ZipEntry("shot.json"))
@@ -93,7 +100,9 @@ object ShotDebugArchive {
             tapY = info.tapY,
             framesProcessed = info.framesProcessed,
             firstFrames = frames.take(info.firstFrameCount),
-            recentFrames = frames.drop(info.firstFrameCount)
+            recentFrames = frames.drop(info.firstFrameCount),
+            impactTimestampNs = info.impactTimestampNs,
+            heardImpact = info.heardImpact
         )
     }
 

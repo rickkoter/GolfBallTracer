@@ -68,5 +68,22 @@ data class ShotRecord(
     
     // Media & Assets
     val snapshotUri: String? = null,
-    val notes: String = ""
-)
+    val notes: String = "",
+
+    // The shot's recording: its video and tracking data, kept for the most recent shots only
+    val videoPath: String? = null,
+    val trackingPath: String? = null,
+    /** Time of the video's first frame on the clock the tracer points are timed with, to play them in step. */
+    val videoStartMs: Long? = null,
+    /** Width / height of the view the tracer points are fractions of. */
+    val frameAspect: Float? = null,
+    /** Where the tracer came from: [TRACED_FROM_CAMERA] (live analysis) or [TRACED_FROM_VIDEO] (the recording). */
+    val tracedFrom: String? = null
+) {
+    val hasRecording: Boolean get() = videoPath != null || trackingPath != null
+
+    companion object {
+        const val TRACED_FROM_CAMERA = "camera"
+        const val TRACED_FROM_VIDEO = "video"
+    }
+}

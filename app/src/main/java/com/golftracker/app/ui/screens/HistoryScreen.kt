@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.SportsGolf
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotHistoryCsv
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.repository.ShotRepository
@@ -70,6 +72,19 @@ fun HistoryScreen(
         repository.loadShots()
     }
 
+    val recordings = ShotRepository.recordingCount(shots)
+    var isPacking by remember { mutableStateOf(false) }
+    // Every shot recording as zips, for the share sheet: to Google Drive for testing and analysis later.
+    val shareRecordings: () -> Unit = {
+        isPacking = true
+        scope.launch {
+            val toShare = shots.filter { it.hasRecording }
+            val intent = withContext(Dispatchers.IO) { ShotBundle.shareIntent(context, toShare, repository::recordingDir) }
+            isPacking = false
+            if (intent != null) context.startActivity(intent) else snackbar.showSnackbar("No shot recordings to share")
+        }
+    }
+
     val totalShots = shots.size
     val maxDistanceYards = shots.maxOfOrNull { it.distanceYards } ?: 0.0
     val avgDistanceYards = if (shots.isNotEmpty()) shots.map { it.distanceYards }.average() else 0.0
@@ -79,6 +94,17 @@ fun HistoryScreen(
             TopAppBar(
                 title = { Text("Shot History & Stats", color = Color.White, fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconButton(onClick = shareRecordings, enabled = recordings > 0 && !isPacking) {
+                        if (isPacking) {
+                            CircularProgressIndicator(color = GolfNeonCyan, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        } else {
+                            Icon(
+                                Icons.Default.Videocam,
+                                contentDescription = "Share all shot recordings",
+                                tint = if (recordings > 0) GolfNeonCyan else GolfTextMuted
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { exportLauncher.launch(ShotHistoryCsv.fileName()) },
                         enabled = shots.isNotEmpty()
@@ -126,6 +152,15 @@ fun HistoryScreen(
                     Column {
                         Text("LONGEST SHOT", color = GolfTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Text("%.0f YDS".format(maxDistanceYards), color = GolfNeonCyan, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column {
+                        Text("RECORDINGS", color = GolfTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "$recordings/${ShotRepository.MAX_RECORDINGS}",
+                            color = if (recordings >= ShotRepository.MAX_RECORDINGS) GolfNeonGold else Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -225,6 +260,10 @@ fun ShotHistoryCard(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(dateStr, color = GolfTextMuted, fontSize = 11.sp)
+                    if (shot.hasRecording) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.Videocam, contentDescription = "Has recording", tint = GolfNeonCyan, modifier = Modifier.size(14.dp))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.repository.ShotProcessor
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.ui.screens.HistoryScreen
 import com.golftracker.app.ui.screens.ShotReviewScreen
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var locationManager: LocationTrackerManager
     private lateinit var repository: ShotRepository
+    private lateinit var processor: ShotProcessor
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
 
         locationManager = LocationTrackerManager(this)
         repository = ShotRepository(this)
+        processor = ShotProcessor(applicationContext, repository)
 
         requestRequiredPermissions()
 
@@ -53,7 +56,8 @@ class MainActivity : ComponentActivity() {
             GolfBallVisualTrackerTheme {
                 MainAppScreen(
                     locationManager = locationManager,
-                    repository = repository
+                    repository = repository,
+                    processor = processor
                 )
             }
         }
@@ -62,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private fun requestRequiredPermissions() {
         val permissions = mutableListOf(
             Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
@@ -101,7 +106,8 @@ enum class AppTab {
 @Composable
 fun MainAppScreen(
     locationManager: LocationTrackerManager,
-    repository: ShotRepository
+    repository: ShotRepository,
+    processor: ShotProcessor
 ) {
     var currentTab by remember { mutableStateOf(AppTab.TRACKER) }
     var reviewShotRecord by remember { mutableStateOf<ShotRecord?>(null) }
@@ -150,6 +156,7 @@ fun MainAppScreen(
                     TrackerScreen(
                         locationManager = locationManager,
                         repository = repository,
+                        processor = processor,
                         onNavigateToReview = { shot ->
                             reviewShotRecord = shot
                             currentTab = AppTab.REVIEW
@@ -171,6 +178,7 @@ fun MainAppScreen(
                     reviewShotRecord?.let { shot ->
                         ShotReviewScreen(
                             shotRecord = shot,
+                            repository = repository,
                             onBack = { currentTab = AppTab.HISTORY },
                             onRecordNext = { currentTab = AppTab.TRACKER }
                         )

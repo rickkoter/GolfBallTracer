@@ -11,8 +11,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsGolf
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,17 +24,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.model.TracerStyle
+import com.golftracker.app.repository.ShotRepository
+import com.golftracker.app.ui.components.ShotVideoPlayer
 import com.golftracker.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShotReviewScreen(
     shotRecord: ShotRecord,
+    repository: ShotRepository,
     onBack: () -> Unit,
     onRecordNext: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // The shot keeps changing for a while after it's taken: traced again from its video, then its snapshot baked.
+    val shots by repository.shots.collectAsState()
+    val shotRecord = shots.firstOrNull { it.id == shotRecord.id } ?: shotRecord
+    val videoPath = shotRecord.videoPath?.takeIf { File(it).exists() }
+    var showSnapshot by remember { mutableStateOf(false) }
+    var isPacking by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -45,6 +62,25 @@ fun ShotReviewScreen(
                     }
                 },
                 actions = {
+                    if (shotRecord.hasRecording) {
+                        // The recording and tracking data as one zip, e.g. to Google Drive for analysis later.
+                        IconButton(enabled = !isPacking, onClick = {
+                            isPacking = true
+                            scope.launch {
+                                val intent = withContext(Dispatchers.IO) {
+                                    ShotBundle.shareIntent(context, listOf(shotRecord), repository::recordingDir)
+                                }
+                                isPacking = false
+                                intent?.let { context.startActivity(it) }
+                            }
+                        }) {
+                            if (isPacking) {
+                                CircularProgressIndicator(color = GolfNeonCyan, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                            } else {
+                                Icon(Icons.Default.Videocam, contentDescription = "Share recording", tint = GolfNeonCyan)
+                            }
+                        }
+                    }
                     IconButton(onClick = {
                         val uriString = shotRecord.snapshotUri ?: return@IconButton
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -76,9 +112,18 @@ fun ShotReviewScreen(
                 colors = CardDefaults.cardColors(containerColor = GolfDarkCard),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp)
+                    .height(if (videoPath != null && !showSnapshot) 460.dp else 380.dp)
             ) {
-                if (shotRecord.snapshotUri != null) {
+                if (videoPath != null && !showSnapshot) {
+                    ShotVideoPlayer(
+                        videoPath = videoPath,
+                        points = shotRecord.points,
+                        style = runCatching { TracerStyle.valueOf(shotRecord.tracerStyle) }.getOrDefault(TracerStyle.PRO_LIME),
+                        videoStartMs = shotRecord.videoStartMs,
+                        frameAspect = shotRecord.frameAspect ?: (9f / 16f),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (shotRecord.snapshotUri != null) {
                     AsyncImage(
                         model = shotRecord.snapshotUri,
                         contentDescription = "Shot Tracer Snapshot",
@@ -96,6 +141,28 @@ fun ShotReviewScreen(
                             tint = GolfNeonLime,
                             modifier = Modifier.size(64.dp)
                         )
+                    }
+                }
+            }
+
+            if (videoPath != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        when (shotRecord.tracedFrom) {
+                            ShotRecord.TRACED_FROM_VIDEO -> "Tracer from the full video • tap video to pause"
+                            else -> "Tracer from live camera • tap video to pause"
+                        },
+                        color = GolfTextSecondary,
+                        fontSize = 12.sp
+                    )
+                    if (shotRecord.snapshotUri != null) {
+                        TextButton(onClick = { showSnapshot = !showSnapshot }) {
+                            Text(if (showSnapshot) "Show video" else "Show snapshot", color = GolfNeonCyan, fontSize = 12.sp)
+                        }
                     }
                 }
             }

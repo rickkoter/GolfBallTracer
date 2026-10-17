@@ -1,6 +1,5 @@
 package com.golftracker.app.tracker
 
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -28,40 +27,51 @@ data class BallCandidate(
     val score: Float
 )
 
-/** Everything collected while recording, handed to [BallFlightFitter] after the shot. */
-/** The ball found where the user tapped: center in screen fractions, radius as a fraction of screen height. */
+/** The ball on the tee: center in screen fractions, radius as a fraction of screen height. */
 data class TeeBall(val x: Float, val y: Float, val radius: Float)
 
+/** Everything collected while recording, handed to [BallFlightFitter] after the shot. */
 data class CapturedShot(
     val candidates: List<BallCandidate>,
     val teeX: Float,
     val teeY: Float,
     /** Ball radius as a fraction of screen height, or null if the ball couldn't be measured on the tee. */
     val ballRadius: Float?,
-    /** Sensor timestamp of the frame the ball left the tee, or null if launch wasn't detected. */
+    /** Timestamp of the frame the ball left the tee, or null if launch wasn't detected. */
     val launchTimestampNs: Long?,
     /** Screen width / height. */
     val aspect: Float,
-    /** Where the user actually tapped, before snapping to the ball. */
+    /** Where the ball was first located, before snapping to its center. */
     val tapX: Float = teeX,
     val tapY: Float = teeY,
     val framesProcessed: Int = 0,
     /** Kept only when recording for diagnostics: the first few frames and the most recent ones. */
     val firstFrames: List<LumaFrame> = emptyList(),
-    val recentFrames: List<LumaFrame> = emptyList()
+    val recentFrames: List<LumaFrame> = emptyList(),
+    /** When the club struck the ball, from the impact sound or from the ball vanishing, if known. */
+    val impactTimestampNs: Long? = null,
+    /** Whether the impact was heard, rather than only seen. */
+    val heardImpact: Boolean = false,
+    /** Tiny copies of every frame, to line the recording's video up with what was analyzed live. */
+    val thumbnails: List<LumaFrame> = emptyList()
 )
 
 /**
  * Collects ball candidates while recording without trying to decide live which one is the ball.
  *
  * Per frame, differencing against the frames before and after finds things that moved, and connected
- * components turn those pixels into blobs. Small, isolated blobs are kept as candidates. Separately, the tapped tee ball is
- * watched so the frame where it disappears (the launch) can be timestamped.
+ * components turn those pixels into blobs. Small, isolated blobs are kept as candidates. Separately, the ball on
+ * the tee is watched so the frame where it disappears (the launch) can be timestamped.
  *
- * Called from the camera analysis thread ([process]) and the UI thread (everything else).
+ * Called from the shot detector's thread ([process]) and the UI thread (everything else).
  */
 class ShotCaptureSession(
     private val maxCandidatesPerFrame: Int = 8,
+    /**
+     * How many frames apart the far neighbors are when looking for motion: about 0.13 s, so a ball
+     * slowing near its apex still moves its own width. 4 at 30 fps.
+     */
+    private val far: Int = FAR,
     /** Keep raw frames so a shot can be saved and replayed offline. */
     private val keepFrames: Boolean = false,
     /** Called on the camera thread when the ball leaves the tee (true) or turns out to still be there (false). */
@@ -81,6 +91,7 @@ class ShotCaptureSession(
     private val recentFrames = ArrayDeque<LumaFrame>()
     private var teeRefined = false
     private var ballRadiusCells: Float? = null
+    private var launchHintNs: Long? = null
     private var aspect = 0.5f
     private var gridHeight = 1
 
@@ -142,8 +153,12 @@ class ShotCaptureSession(
         cameraX.toFloat() / last.width to cameraY.toFloat() / last.height
     }
 
-    /** Starts a new capture with the ball the user tapped at screen-normalized (x, y). */
-    fun arm(x: Float, y: Float) = synchronized(lock) {
+    /**
+     * Starts a new capture with the ball at screen-normalized (x, y). The first frame is searched for the
+     * ball there unless [ball] already gives its measurements. [launchHintNs] is when the impact was
+     * heard: used for the launch if the ball isn't seen leaving, or is seen leaving far from it.
+     */
+    fun arm(x: Float, y: Float, ball: TeeBall? = null, launchHintNs: Long? = null) = synchronized(lock) {
         armed = true
         cameraX = 0
         cameraY = 0
@@ -156,9 +171,20 @@ class ShotCaptureSession(
         recentFrames.clear()
         teeRefined = false
         ballRadiusCells = null
+        pendingBall = ball
+        this.launchHintNs = launchHintNs
         history.clear()
         candidates.clear()
         launch.reset()
+    }
+
+    private var pendingBall: TeeBall? = null
+
+    /** The detected launch, unless the impact was heard well away from it: then the sound is more reliable. */
+    private fun launchTime(): Long? {
+        val seen = launch.launchTimestampNs
+        val heard = launchHintNs ?: return seen
+        return if (seen != null && abs(seen - heard) <= MAX_LAUNCH_FROM_HINT_NS) seen else heard
     }
 
     /** Stops capturing and returns what was collected. */
@@ -170,7 +196,7 @@ class ShotCaptureSession(
             teeX = teeX,
             teeY = teeY,
             ballRadius = ballRadiusCells?.let { it / gridHeight },
-            launchTimestampNs = launch.launchTimestampNs,
+            launchTimestampNs = launchTime(),
             aspect = aspect,
             tapX = tapX,
             tapY = tapY,
@@ -207,7 +233,16 @@ class ShotCaptureSession(
         }
 
         if (!teeRefined) {
-            refineTee(frame)
+            val given = pendingBall
+            if (given != null) {
+                ballRadiusCells = max(1f, given.radius * frame.height)
+            } else {
+                BallMeasure.find(frame, teeX, teeY)?.let {
+                    teeX = it.x
+                    teeY = it.y
+                    ballRadiusCells = it.radiusCells
+                }
+            }
             teeRefined = true
             onTeeMeasured(ballRadiusCells?.let { TeeBall(teeX, teeY, it / frame.height) })
         }
@@ -217,7 +252,7 @@ class ShotCaptureSession(
         }
         // Follow camera shake so the scene can be compared like-for-like between frames.
         history.lastOrNull()?.let { prev ->
-            val (sx, sy) = estimateShift(prev.frame, frame)
+            val (sx, sy) = FrameShift.estimate(prev.frame, frame)
             cameraX += sx
             cameraY += sy
         }
@@ -230,268 +265,21 @@ class ShotCaptureSession(
         if (isLaunched != wasLaunched) onLaunchDetected(isLaunched)
 
         history.addLast(Tracked(frame, cameraX, cameraY))
-        if (history.size > 2 * FAR + 1) history.removeFirst()
-        if (history.size == 2 * FAR + 1 && candidates.size < MAX_BUFFERED_CANDIDATES) {
+        if (history.size > 2 * far + 1) history.removeFirst()
+        if (history.size == 2 * far + 1 && candidates.size < MAX_BUFFERED_CANDIDATES) {
             candidates.addAll(detectMovingBlobs(history))
         }
     }
 
-    /**
-     * Snaps the tap to the ball under the finger and measures its size. The tap is rarely exactly on
-     * the ball's center, and knowing the ball's size lets us reject blobs that are far too big and
-     * watch the right patch of ground for the launch. Works from a ball a few pixels across to one
-     * filling a good part of the screen with the phone right behind it.
-     */
-    private fun refineTee(frame: LumaFrame) {
-        val w = frame.width
-        val h = frame.height
-        val long = max(w, h)
-        val cx = (teeX * w).roundToInt().coerceIn(0, w - 1)
-        val cy = (teeY * h).roundToInt().coerceIn(0, h - 1)
-
-        // Seed: the brightest pixel near the tap, favoring ones closer to the finger.
-        val seedReach = max(3, (long * 0.03f).roundToInt())
-        var seedX = cx
-        var seedY = cy
-        var seedScore = Float.NEGATIVE_INFINITY
-        for (y in max(0, cy - seedReach)..min(h - 1, cy + seedReach)) {
-            for (x in max(0, cx - seedReach)..min(w - 1, cx + seedReach)) {
-                val d = sqrt(((x - cx) * (x - cx) + (y - cy) * (y - cy)).toFloat())
-                if (d > seedReach) continue
-                val s = frame.lum(x, y) - d
-                if (s > seedScore) { seedScore = s; seedX = x; seedY = y }
-            }
-        }
-
-        // Background: median over a wide area, which even a ball close to the camera only partly covers.
-        val bgReach = max(8, (long * 0.2f).roundToInt())
-        val samples = ArrayList<Int>()
-        for (y in max(0, seedY - bgReach)..min(h - 1, seedY + bgReach) step 3) {
-            for (x in max(0, seedX - bgReach)..min(w - 1, seedX + bgReach) step 3) samples.add(frame.lum(x, y))
-        }
-        samples.sort()
-        val background = samples[samples.size / 2]
-        val peak = frame.lum(seedX, seedY)
-        if (peak - background < 25) return
-
-        val maxReach = max(10, (long * 0.15f).roundToInt())
-        val longRun = max(3, (maxReach * 0.12f).roundToInt())
-
-        // Where to draw the line between ball and ground depends on the scene: a low cut keeps the
-        // shaded underside of a ball on dark carpet, while on sunlit grass only a high cut stops the
-        // rays running off through bright blades. Try a few and keep the ball that stands out most.
-        var best: FloatArray? = null
-        var bestContrast = 0f
-        for (fraction in CUT_FRACTIONS) {
-            val threshold = (background + (peak - background) * fraction).roundToInt()
-            val circle = measureBall(frame, seedX, seedY, threshold, maxReach, longRun)
-            val contrast = circle?.let { contrastOf(frame, it[0], it[1], max(1f, it[2])) }
-            if (circle == null || contrast == null) continue
-            if (contrast > bestContrast) { bestContrast = contrast; best = circle }
-        }
-        val found = best ?: return
-        teeX = (found[0] + 0.5f) / w
-        teeY = (found[1] + 0.5f) / h
-        ballRadiusCells = max(1f, found[2])
-    }
-
-    /** The ball's circle as [centerX, centerY, radius] with pixels at or above [threshold] counting as ball. */
-    private fun measureBall(frame: LumaFrame, seedX: Int, seedY: Int, threshold: Int, maxReach: Int, longRun: Int): FloatArray? {
-        val w = frame.width
-        val h = frame.height
-        val long = max(w, h)
-
-        // Walk rays out from the seed and note where each crosses into background: both where it first
-        // dims (the edge, or the logo stripe) and where it stays dim (the edge, or past a gap into a
-        // bright rug). The ball is the circle most of these points agree on; points from the logo, a
-        // touching finger or a nearby bright patch don't fit it.
-        fun castRays(fromX: Float, fromY: Float): Pair<List<Float>, List<Float>> {
-            val edgeX = ArrayList<Float>()
-            val edgeY = ArrayList<Float>()
-            for (k in 0 until RAYS) {
-                val angle = 2 * PI * k / RAYS
-                val dx = kotlin.math.cos(angle).toFloat()
-                val dy = kotlin.math.sin(angle).toFloat()
-                var dark = 0
-                var firstEdge = -1
-                var r = 1
-                while (r <= maxReach) {
-                    val x = (fromX + dx * r).roundToInt()
-                    val y = (fromY + dy * r).roundToInt()
-                    if (x !in 0 until w || y !in 0 until h) break
-                    if (frame.lum(x, y) < threshold) {
-                        dark++
-                        if (dark == 2 && firstEdge < 0) firstEdge = r - 1
-                        if (dark >= longRun) {
-                            val lastEdge = r - dark + 1
-                            edgeX += fromX + dx * lastEdge; edgeY += fromY + dy * lastEdge
-                            if (firstEdge in 1 until lastEdge) { edgeX += fromX + dx * firstEdge; edgeY += fromY + dy * firstEdge }
-                            break
-                        }
-                    } else {
-                        dark = 0
-                    }
-                    r++
-                }
-            }
-            return edgeX to edgeY
-        }
-
-        // Rays cast from the edge of the ball mostly measure how close the edge is, so start from the
-        // middle of the bright patch around the seed (kept small, so a touching rug can't pull it far).
-        val (startX, startY) = brightCentroid(frame, seedX, seedY, threshold, max(3, (long * 0.03f).roundToInt()))
-        var (xs, ys) = castRays(startX, startY)
-        var circle = fitCircle(xs, ys, startX, startY, maxReach.toFloat())
-        // Once more from the fitted center, where the rays are even all round.
-        circle?.let { c ->
-            if (frame.lum(c[0].roundToInt().coerceIn(0, w - 1), c[1].roundToInt().coerceIn(0, h - 1)) >= threshold) {
-                val again = castRays(c[0], c[1])
-                fitCircle(again.first, again.second, c[0], c[1], maxReach.toFloat())?.let { circle = it }
-            }
-        }
-        return circle
-    }
-
-    /** Center of the pixels at or above [threshold] connected to the seed, within [reach] of it. */
-    private fun brightCentroid(frame: LumaFrame, seedX: Int, seedY: Int, threshold: Int, reach: Int): Pair<Float, Float> {
-        val w = frame.width
-        val h = frame.height
-        val side = 2 * reach + 1
-        val visited = BooleanArray(side * side)
-        val stack = IntArray(side * side)
-        var sp = 0
-        stack[sp++] = reach * side + reach
-        visited[reach * side + reach] = true
-        var sumX = 0L
-        var sumY = 0L
-        var n = 0
-        while (sp > 0) {
-            val local = stack[--sp]
-            val x = seedX + local % side - reach
-            val y = seedY + local / side - reach
-            sumX += x; sumY += y; n++
-            for (dy in -1..1) for (dx in -1..1) {
-                val lx = local % side + dx
-                val ly = local / side + dy
-                if (lx !in 0 until side || ly !in 0 until side) continue
-                val nx = seedX + lx - reach
-                val ny = seedY + ly - reach
-                if (nx !in 0 until w || ny !in 0 until h) continue
-                val li = ly * side + lx
-                if (visited[li] || frame.lum(nx, ny) < threshold) continue
-                visited[li] = true
-                stack[sp++] = li
-            }
-        }
-        return sumX.toFloat() / n to sumY.toFloat() / n
-    }
-
-
-    /**
-     * How much brighter the circle is than the ground around it, or null if not clearly brighter.
-     * Sunlit grass is full of bright blades that a circle can be fitted to; a real ball stands out
-     * from its surroundings as a whole. The surroundings are judged by a brighter-than-typical level
-     * so a nearby shadow can't make a patch of sunlit grass look like a ball.
-     */
-    private fun contrastOf(frame: LumaFrame, cx: Float, cy: Float, r: Float): Float? {
-        val inside = ArrayList<Int>()
-        val ring = ArrayList<Int>()
-        val outer = max(r * 2.2f, r + 3f)
-        val inner = max(r * 1.4f, r + 1.5f)
-        val reach = outer.toInt() + 1
-        for (y in (cy - reach).toInt()..(cy + reach).toInt()) {
-            if (y !in 0 until frame.height) continue
-            for (x in (cx - reach).toInt()..(cx + reach).toInt()) {
-                if (x !in 0 until frame.width) continue
-                val d = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy))
-                if (d <= max(1f, r)) {
-                    inside.add(frame.lum(x, y))
-                } else if (d in inner..outer) {
-                    ring.add(frame.lum(x, y))
-                }
-            }
-        }
-        if (inside.isEmpty() || ring.size < 8) return null
-        // The brightest half inside: a far-off ball is only a few pixels, partly hidden by the club or
-        // shaded underneath, but those pixels are bright; a circle fitted to grass has none that are.
-        inside.sortDescending()
-        val top = inside.subList(0, max(1, inside.size / 2))
-        val insideLevel = top.sum().toFloat() / top.size
-        ring.sort()
-        val around = ring[ring.size * 65 / 100].toFloat()
-        // A ball only a few pixels across can't stand out as much: its edges blur into the grass.
-        val tiny = r <= 5f
-        val minContrast = if (tiny) MIN_TINY_BALL_CONTRAST else MIN_BALL_CONTRAST
-        val minRatio = if (tiny) 1.12f else 1.15f
-        if (insideLevel - around < minContrast || insideLevel < around * minRatio) return null
-        return insideLevel - around
-    }
-
-    /**
-     * The circle through the most of the given edge points, refined by least squares on those points,
-     * as [centerX, centerY, radius]. It must contain [insideX], [insideY] (the ball the user tapped).
-     */
-    private fun fitCircle(xs: List<Float>, ys: List<Float>, insideX: Float, insideY: Float, maxRadius: Float): FloatArray? {
-        val n = xs.size
-        if (n < 5) return null
-        fun inliers(cx: Float, cy: Float, r: Float): List<Int> {
-            val tol = max(1.5f, 0.12f * r)
-            return (0 until n).filter { abs(sqrt((xs[it] - cx) * (xs[it] - cx) + (ys[it] - cy) * (ys[it] - cy)) - r) <= tol }
-        }
-        var best: List<Int> = emptyList()
-        for (i in 0 until n) for (j in i + 1 until n) for (k in j + 1 until n) {
-            // Circumcircle of three points.
-            val ax = xs[i]; val ay = ys[i]; val bx = xs[j]; val by = ys[j]; val cx = xs[k]; val cy = ys[k]
-            val d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-            if (abs(d) < 1e-3f) continue
-            val a2 = ax * ax + ay * ay; val b2 = bx * bx + by * by; val c2 = cx * cx + cy * cy
-            val ox = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
-            val oy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
-            val r = sqrt((ax - ox) * (ax - ox) + (ay - oy) * (ay - oy))
-            if (r < 1f || r > maxRadius) continue
-            if ((insideX - ox) * (insideX - ox) + (insideY - oy) * (insideY - oy) > r * r) continue
-            val these = inliers(ox, oy, r)
-            if (these.size > best.size) best = these
-        }
-        if (best.size < 5) return null
-
-        // Least squares (Kasa): x² + y² + D·x + E·y + F = 0 over the inliers.
-        val m = Array(3) { DoubleArray(4) }
-        for (i in best) {
-            val x = xs[i].toDouble(); val y = ys[i].toDouble()
-            val row = doubleArrayOf(x, y, 1.0)
-            val rhs = -(x * x + y * y)
-            for (p in 0 until 3) {
-                for (q in 0 until 3) m[p][q] += row[p] * row[q]
-                m[p][3] += row[p] * rhs
-            }
-        }
-        for (col in 0 until 3) {
-            var pivot = col
-            for (r in col + 1 until 3) if (abs(m[r][col]) > abs(m[pivot][col])) pivot = r
-            val tmp = m[col]; m[col] = m[pivot]; m[pivot] = tmp
-            if (abs(m[col][col]) < 1e-9) return null
-            for (r in 0 until 3) {
-                if (r == col) continue
-                val f = m[r][col] / m[col][col]
-                for (c in col..3) m[r][c] -= f * m[col][c]
-            }
-        }
-        val dd = m[0][3] / m[0][0]; val ee = m[1][3] / m[1][1]; val ff = m[2][3] / m[2][2]
-        val ox = -dd / 2; val oy = -ee / 2
-        val r2 = ox * ox + oy * oy - ff
-        if (r2 <= 0) return null
-        return floatArrayOf(ox.toFloat(), oy.toFloat(), sqrt(r2).toFloat())
-    }
 
     /**
      * Candidates for the middle frame of [frames]. A pixel is moving if it differs from both the frame
      * before and the frame after, which places the ball where it is now without a ghost where it was.
-     * Neighbors one frame away catch a fast ball; neighbors [FAR] frames away catch a ball that has
+     * Neighbors one frame away catch a fast ball; neighbors [far] frames away catch a ball that has
      * slowed on screen near its apex and moves less than its own width per frame.
      */
     private fun detectMovingBlobs(frames: ArrayDeque<Tracked>): List<BallCandidate> {
-        val mid = frames[FAR]
+        val mid = frames[far]
         val b = mid.frame
         val bd = b.data
         val w = b.width
@@ -515,10 +303,10 @@ class ShotCaptureSession(
                 return if (lb > u) lb - u else if (lb < l) l - lb else 0
             }
         }
-        val nearA = Ref(frames[FAR - 1])
-        val nearC = Ref(frames[FAR + 1])
+        val nearA = Ref(frames[far - 1])
+        val nearC = Ref(frames[far + 1])
         val farA = Ref(frames[0])
-        val farC = Ref(frames[2 * FAR])
+        val farC = Ref(frames[2 * far])
 
         val mask = BooleanArray(size)
         val strength = IntArray(size)
@@ -627,72 +415,13 @@ class ShotCaptureSession(
         return if (found.size > maxCandidatesPerFrame) found.subList(0, maxCandidatesPerFrame) else found
     }
 
-    /**
-     * How far the scene moved from [prev] to [cur] (content at prev(x, y) is at cur(x + sx, y + sy)),
-     * found by block matching: a coarse search on 4× smaller images, then a fine one around it.
-     */
-    private fun estimateShift(prev: LumaFrame, cur: LumaFrame): Pair<Int, Int> {
-        val w = prev.width
-        val h = prev.height
-        val f = 4
-        val cw = w / f
-        val ch = h / f
-        fun shrink(fr: LumaFrame) = IntArray(cw * ch).also { out ->
-            for (y in 0 until ch * f) for (x in 0 until cw * f) {
-                out[(y / f) * cw + x / f] += fr.data[y * w + x].toInt() and 0xFF
-            }
-        }
-        val p = shrink(prev)
-        val c = shrink(cur)
-
-        fun cost(a: IntArray, b: IntArray, aw: Int, ah: Int, sx: Int, sy: Int, step: Int): Double {
-            var sum = 0L
-            var n = 0
-            var y = max(0, -sy)
-            while (y < min(ah, ah - sy)) {
-                var x = max(0, -sx)
-                while (x < min(aw, aw - sx)) {
-                    sum += abs(b[(y + sy) * aw + x + sx] - a[y * aw + x])
-                    n++
-                    x += step
-                }
-                y += step
-            }
-            // Slight preference for no movement, so a featureless scene doesn't wander.
-            return if (n < aw * ah / (4 * step * step)) Double.MAX_VALUE else sum.toDouble() / n * (1 + 0.002 * (abs(sx) + abs(sy)))
-        }
-
-        var bestX = 0
-        var bestY = 0
-        var best = Double.MAX_VALUE
-        for (sy in -COARSE_SEARCH..COARSE_SEARCH) for (sx in -COARSE_SEARCH..COARSE_SEARCH) {
-            val cst = cost(p, c, cw, ch, sx, sy, 2)
-            if (cst < best) { best = cst; bestX = sx; bestY = sy }
-        }
-
-        // Refine to the pixel. A pixel off is fine: differencing tolerates ±1 pixel anyway.
-        val pf = IntArray(w * h) { prev.data[it].toInt() and 0xFF }
-        val cf = IntArray(w * h) { cur.data[it].toInt() and 0xFF }
-        var fineX = bestX * f
-        var fineY = bestY * f
-        best = Double.MAX_VALUE
-        for (sy in bestY * f - 2..bestY * f + 2) for (sx in bestX * f - 2..bestX * f + 2) {
-            val cst = cost(pf, cf, w, h, sx, sy, 3)
-            if (cst < best) { best = cst; fineX = sx; fineY = sy }
-        }
-        return fineX to fineY
-    }
 
     companion object {
-        private const val COARSE_SEARCH = 5
-        private const val RAYS = 24
-        private const val MIN_BALL_CONTRAST = 30
-        private const val MIN_TINY_BALL_CONTRAST = 25
-        private val CUT_FRACTIONS = floatArrayOf(0.35f, 0.5f, 0.65f)
         private const val DIFF_THRESHOLD = 18
-        private const val FAR = 4
+        const val FAR = 4
+        private const val MAX_LAUNCH_FROM_HINT_NS = 120_000_000L
         private const val KEPT_FIRST_FRAMES = 10
-        private const val KEPT_RECENT_FRAMES = 150
+        private const val KEPT_RECENT_FRAMES = 200
         private const val MAX_BUFFERED_CANDIDATES = 60_000
     }
 }

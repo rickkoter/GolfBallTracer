@@ -19,7 +19,8 @@ Welcome to **GolfBallTracer** for Android! This application transforms your smar
 
 When launching the app for the first time, grant the following permissions when prompted:
 
-- **Camera**: Required to display the live viewfinder and analyze ball launch frames.
+- **Camera**: Required to display the live viewfinder, analyze ball launch frames and record each shot's video.
+- **Microphone**: Used only to hear the club strike the ball, which starts a shot. No sound is recorded or saved.
 - **Location (Precise GPS)**: Required to calculate exact shot distance between your tee launch point and ball landing position.
 - **Photos / Media Storage**: Required to save HD tracer snapshot images to your phone's photo gallery (`Pictures/GolfTracker`).
 
@@ -49,14 +50,27 @@ The app opens directly to the **Tracer View** camera screen.
 +------------------------------------------------------+
 ```
 
-### Steps to Record a Shot (Automatic Tap-to-Record):
-1. **Tap the Golf Ball on Tee**: Simply tap the exact location of your golf ball sitting on the tee box directly on the camera screen.
-   - Recording starts **automatically** upon tapping!
-   - A glowing **⛳ BALL LOCKED** target reticle locks onto your ball.
-   - Launch GPS location is recorded automatically.
-2. **Select Your Club** (Optional): Tap the **Club Badge** (e.g., `DRIVER`, `7-IRON`) on the telemetry card at the bottom right to select the club you are hitting.
-3. **Hit Your Shot**: Swing and launch your ball. The real-time analyzer focuses exclusively on the tapped ball location, tracks it climbing into the sky, and draws a luminous neon arc along the ball flight path.
-4. **Complete & Review Shot**: Tap **Save Shot & Review** at the bottom of the screen once the ball reaches its apex or lands. The app automatically bakes an HD snapshot and opens the **Shot Review** screen.
+### Recording Shots (Hands-Free)
+There's nothing to tap before a shot. While the Tracer View is open, the app **listens for the strike and watches the ball**:
+
+1. **Set up the phone** so the ball on the tee (or mat) is in view, ideally on a tripod or leaning against your bag behind the golfer. The banner shows **👂 Listening**, plus whether the mic and video are on and how many shot recordings are stored.
+2. **Select Your Club** (optional): tap the club badge on the telemetry card.
+3. **Just hit.** The crack of the club on the ball, together with the ball vanishing from where it sat, starts the shot. A ring marks the ball that was hit and the banner turns red (**🔴 Shot detected!**) while the flight is followed for a few seconds. Tap the screen to finish early once the ball lands.
+   - A practice swing, a clap or a shot from the next bay doesn't start anything: it takes both the sound and the ball leaving.
+   - Without microphone permission the app falls back to watching for motion alone, which also picks up things that aren't shots.
+4. **The tracer appears** over a still from just after the strike, and the shot is **saved to your Shot Log automatically**, along with its video. A few seconds later the app traces the shot again from the full-resolution, full-frame-rate video. If that trace follows the ball at least as far, it replaces the first one. The banner says which was used.
+5. **Keep hitting.** The app is already listening for the next shot. Tap **Review** to open the shot, **Locate Ball** to find where it landed, ↻ to clear the screen, or ⏸ to stop listening (for example while walking with the phone).
+
+---
+
+## 2a. Shot Recordings
+
+Each shot keeps a **recording**: the video from just before the swing to the end of the flight, plus the tracking data (where the ball was, when it was struck, every spot the detector saw, and both tracers).
+
+- **Watch it**: the Shot Review screen plays the video on a loop with the tracer growing along with the ball. Tap the video to pause, or switch to the snapshot.
+- **Share it for analysis**: tap the 🎥 icon on Shot Review to share that shot's recording as one zip, or the 🎥 icon in the Shot Log to share every recording. Pick Google Drive (or email, etc.) in the share sheet. The zips can be replayed on a computer with `ShotReplayTest` (copy them into `app/shots/`).
+- **Limit**: the phone keeps recordings for up to **32 shots**. When that's reached, listening stops and the app offers to **remove the recordings of the earliest 18 shots**. Those shots stay in your history with their snapshots and distances. Share any you want to keep first. Until you make room, no new shots are recorded; tap the banner to bring the offer back.
+- Diagnostic frames for each shot are also saved to `Downloads/GolfBallTracer/` as before.
 
 ---
 
@@ -108,7 +122,8 @@ Tap the **Shot Log** tab on the bottom navigation bar to access your saved shots
 
 - **Performance Summary**: View your Total Shots recorded, Average Shot Distance, and Longest Drive across all clubs.
 - **Shot Log List**: Inspect thumbnail previews, dates, club tags, and yardages for every recorded shot.
-- **Delete Shots**: Tap the trash icon next to any shot to remove it from history.
+- **Delete Shots**: Tap the trash icon next to any shot to remove it, and its recording, from history.
+- **Recordings**: Shots with a 🎥 have a recording. The summary shows how many of the 32 are used.
 
 ---
 

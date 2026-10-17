@@ -1,6 +1,7 @@
 package com.golftracker.app.ui.components
 
 import android.hardware.camera2.CameraCharacteristics
+import android.util.Range
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -8,6 +9,11 @@ import androidx.camera.core.*
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
@@ -16,17 +22,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.golftracker.app.tracker.BallTrackerAnalyzer
-import com.golftracker.app.tracker.ShotCaptureSession
 import java.util.concurrent.Executors
 
+/**
+ * The live camera: the preview, frames for [analyzer], and video for shot recordings. Recording at
+ * 60 fps is tried first, then the camera's usual rate, then no video at all if the phone can't record
+ * alongside the analysis; [onVideoCapture] gets the video use case, or null.
+ */
 @Composable
 fun CameraPreviewView(
     isFlashEnabled: Boolean,
-    captureSession: ShotCaptureSession,
+    analyzer: ImageAnalysis.Analyzer,
     onPreviewReady: (PreviewView) -> Unit,
     /** The camera's field of view across the screen's height, in radians, once known. */
     onFieldOfView: (Double) -> Unit = {},
+    onVideoCapture: (VideoCapture<Recorder>?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -36,8 +46,6 @@ fun CameraPreviewView(
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
-
-    val analyzer = remember(captureSession) { BallTrackerAnalyzer(captureSession) }
 
     DisposableEffect(Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -71,23 +79,37 @@ fun CameraPreviewView(
                     .build()
                     .also { it.setAnalyzer(cameraExecutor, analyzer) }
 
-                // Sharing the preview's ViewPort gives the analysis frames the same crop as the screen.
-                val group = UseCaseGroup.Builder()
-                    .addUseCase(preview)
-                    .addUseCase(imageAnalyzer)
-                    .apply { view.viewPort?.let { setViewPort(it) } }
-                    .build()
+                fun videoCapture(fps: Int?): VideoCapture<Recorder> {
+                    val recorder = Recorder.Builder()
+                        .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
+                        .build()
+                    return VideoCapture.Builder(recorder)
+                        .apply { if (fps != null) setTargetFrameRate(Range(fps, fps)) }
+                        .build()
+                }
 
-                try {
+                // Sharing the preview's ViewPort gives the analysis frames the same crop as the screen.
+                fun bind(video: VideoCapture<Recorder>?): Camera {
+                    val group = UseCaseGroup.Builder()
+                        .addUseCase(preview)
+                        .addUseCase(imageAnalyzer)
+                        .apply { if (video != null) addUseCase(video) }
+                        .apply { view.viewPort?.let { setViewPort(it) } }
+                        .build()
                     provider.unbindAll()
-                    camera = provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        group
-                    )
-                    camera?.let { verticalFieldOfView(it)?.let(onFieldOfView) }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                    return provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group)
+                }
+
+                for (fps in listOf(60, null, -1)) {
+                    val video = if (fps == -1) null else videoCapture(fps)
+                    try {
+                        camera = bind(video)
+                        onVideoCapture(video)
+                        camera?.let { verticalFieldOfView(it)?.let(onFieldOfView) }
+                        break
+                    } catch (e: Exception) {
+                        android.util.Log.w("CameraPreviewView", "Couldn't bind camera with video at ${fps ?: "default"} fps", e)
+                    }
                 }
             }
         }

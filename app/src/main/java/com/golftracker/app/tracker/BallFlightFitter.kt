@@ -84,8 +84,16 @@ object BallFlightFitter {
      */
     data class ScreenLaunch(val x: Double, val y: Double, val vx: Double, val vy: Double, val d1: Double, val aspect: Double)
 
-    /** The tracer plus the launch it was fitted from. */
-    data class Flight(val tracer: List<ScreenPoint>, val launch: ScreenLaunch)
+    /**
+     * The tracer plus the launch it was fitted from, and how well the ball was followed: in how many
+     * frames, and for how long after launch.
+     */
+    data class Flight(
+        val tracer: List<ScreenPoint>,
+        val launch: ScreenLaunch,
+        val trackedFrames: Int = 0,
+        val trackedSeconds: Double = 0.0
+    )
 
     /** Returns the tracer from the tee along the ball's flight, or an empty list if no ball flight was found. */
     fun fit(shot: CapturedShot): List<ScreenPoint> = fitFlight(shot)?.tracer ?: emptyList()
@@ -123,7 +131,9 @@ object BallFlightFitter {
             val path = refined.path
             return Flight(
                 toTracer(refined, track, teeX, teeY, t0Ns, aspect),
-                ScreenLaunch(path.x0, path.y0, path.launchVx, path.launchVy, path.d1, aspect)
+                ScreenLaunch(path.x0, path.y0, path.launchVx, path.launchVy, path.d1, aspect),
+                trackedFrames = track.size,
+                trackedSeconds = track.last().t - path.t0
             )
         }
         return null
