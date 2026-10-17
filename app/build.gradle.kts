@@ -43,6 +43,11 @@ kotlin {
     jvmToolchain(17)
 }
 
+// APKs come out as golfballtracer-debug.apk / golfballtracer-release.apk.
+base {
+    archivesName = "golfballtracer"
+}
+
 dependencies {
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)

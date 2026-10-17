@@ -2,7 +2,7 @@
 set -e
 
 # Configuration (relative paths used for root directory project files)
-SRC_APK="app/build/outputs/apk/debug/app-debug.apk"
+SRC_APK="app/build/outputs/apk/debug/golfballtracer-debug.apk"
 DEST_DIR="/Users/rek/Library/CloudStorage/GoogleDrive-rickkoter@gmail.com/My Drive/KoterApps"
 ARCHIVE_DIR="$DEST_DIR/old"
 
