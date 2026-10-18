@@ -53,13 +53,15 @@ The app opens directly to the **Tracer View** camera screen.
 ### Recording Shots (Hands-Free)
 There's nothing to tap before a shot. While the Tracer View is open, the app **listens for the strike and watches the ball**:
 
-1. **Set up the phone** so the ball on the tee (or mat) is in view, ideally on a tripod or leaning against your bag behind the golfer. The banner shows **👂 Listening**, plus whether the mic and video are on and how many shot recordings are stored.
+1. **Set up the phone** so the ball on the tee (or mat) is in view, ideally on a tripod or leaning against your bag behind the golfer. The screen stays on while the app is open (it can't hear or see shots with the screen off), so plug in for long sessions. The banner shows **👂 Listening**, plus whether the mic and video are on and how many shot recordings are stored.
 2. **Select Your Club** (optional): tap the club badge on the telemetry card.
 3. **Just hit.** The crack of the club on the ball, together with the ball vanishing from where it sat, starts the shot. A ring marks the ball that was hit and the banner turns red (**🔴 Shot detected!**) while the flight is followed for a few seconds. Tap the screen to finish early once the ball lands.
    - A practice swing, a clap or a shot from the next bay doesn't start anything: it takes both the sound and the ball leaving.
-   - Without microphone permission the app falls back to watching for motion alone, which also picks up things that aren't shots.
+   - The **🎤 button** (bottom left) turns listening for the strike on and off. It's on whenever the app starts. If it's gold, the microphone isn't allowed yet: tap it to allow it. While it's on, a little bar in the banner shows how loud it is, so you can see it's hearing.
+   - Each sharp sound that doesn't start a shot is noted in the banner, e.g. "heard a strike (+24 dB) during a swing • no ball seen leaving". The frames from those few seconds are saved to `Downloads/GolfBallTracer/missed-strike_*.zip` (at most one every 15 seconds) so missed shots can be worked out later.
+   - With the microphone off, the app falls back to watching for motion alone, which misses more shots and picks up things that aren't shots.
 4. **The tracer appears** over a still from just after the strike, and the shot is **saved to your Shot Log automatically**, along with its video. A few seconds later the app traces the shot again from the full-resolution, full-frame-rate video. If that trace follows the ball at least as far, it replaces the first one. The banner says which was used.
-5. **Keep hitting.** The app is already listening for the next shot. Tap **Review** to open the shot, **Locate Ball** to find where it landed, ↻ to clear the screen, or ⏸ to stop listening (for example while walking with the phone).
+5. **Keep hitting.** The app is already listening for the next shot. Tap **Review** to open the shot, **Locate Ball** to find where it landed, ↻ to clear the screen, ⏸ to stop listening (for example while walking with the phone), or 🎤 to turn the microphone off.
 
 ---
 

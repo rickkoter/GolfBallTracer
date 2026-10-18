@@ -35,8 +35,11 @@ class ShotTrigger(
         /** The capture is over; the shot is ready for [BallFlightFitter]. */
         data class Captured(val shot: CapturedShot) : Event
 
-        /** An impact was heard during a swing, but no ball was seen leaving. */
-        data class Missed(val impactNs: Long) : Event
+        /**
+         * A strike was heard but no ball was seen leaving. [duringSwing] says whether anything moved
+         * around then; if so, [frames] are the frames around it, for working out later what went wrong.
+         */
+        class Missed(val impactNs: Long, val duringSwing: Boolean, val frames: List<LumaFrame>) : Event
     }
 
     private class Buffered(val frame: LumaFrame, val thumb: LumaFrame, val motion: Float)
@@ -114,16 +117,19 @@ class ShotTrigger(
         if (motion >= swingMotion()) lastActivityNs = frame.timestampNs
 
         // Heard impacts first: they give the exact moment. A strike plus a ball gone from where it sat is
-        // enough, even if the swing was lost in a shaking hand; without the ball, only a swing makes it a miss.
-        while (sounds.isNotEmpty() && frame.timestampNs >= sounds.first() + secondsNs(ImpactBallLocator.NEEDS_AFTER_S)) {
+        // enough, even if the swing was lost in a shaking hand.
+        while (sounds.isNotEmpty() && frame.timestampNs >= sounds.first() + secondsNs(ImpactBallLocator.NEEDS_AFTER_S) + CLOCK_SLACK_NS) {
             val t = sounds.removeFirst()
             if (t < listenSinceNs) continue
-            val found = ImpactBallLocator.locate(buffer.map { it.frame }, t)
+            val frames = buffer.map { it.frame }
+            // The sound's clock and the camera's may disagree a little; look either side if need be.
+            val found = listOf(0L, CLOCK_SLACK_NS, -CLOCK_SLACK_NS).firstNotNullOfOrNull { ImpactBallLocator.locate(frames, t + it) }
             if (found != null) {
                 start(found, t, heard = true)
                 return
             }
-            if (swingAround(t)) onEvent(Event.Missed(t))
+            val swing = swingAround(t)
+            onEvent(Event.Missed(t, swing, if (swing) frames else emptyList()))
         }
 
         // Without a microphone, every so often a look for a strike during a burst of motion.
@@ -185,6 +191,7 @@ class ShotTrigger(
         private const val BUFFER_NS = 3_000_000_000L
         private const val LOOK_INTERVAL_NS = 250_000_000L
         private const val MIN_SOUND_GAP_NS = 300_000_000L
+        private const val CLOCK_SLACK_NS = 100_000_000L
         private const val SWING_BEFORE_NS = 500_000_000L
         private const val SWING_AFTER_NS = 250_000_000L
         /** Grey levels of mean change per thumbnail pixel between frames. */

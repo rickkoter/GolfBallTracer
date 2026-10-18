@@ -11,6 +11,8 @@ import android.media.AudioTimestamp
 import android.media.MediaRecorder
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -79,6 +81,16 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
 
     @Volatile
     private var running = false
+
+    /** How loud it is right now: the loudest sample of the last read, in dB below full scale (0 is the loudest possible). */
+    @Volatile
+    var levelDb = SILENCE_DB
+        private set
+
+    /** How far above the background the last strike heard stood out, in dB. */
+    @Volatile
+    var lastStrikeDb: Float? = null
+        private set
     private var thread: Thread? = null
 
     /** Starts listening; false if there's no microphone permission or it couldn't be opened. */
@@ -99,6 +111,7 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
         running = false
         thread?.join(500)
         thread = null
+        levelDb = SILENCE_DB
     }
 
     @SuppressLint("MissingPermission")
@@ -135,7 +148,11 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
             while (running) {
                 val n = record.read(buffer, 0, buffer.size)
                 if (n <= 0) continue
+                var peak = 1
+                for (i in 0 until n) peak = max(peak, abs(buffer[i].toInt()))
+                levelDb = (20 * log10(peak / 32768.0)).toFloat()
                 for (onset in onsets.feed(buffer, n, read)) {
+                    lastStrikeDb = (20 * log10(onset.ratio.toDouble())).toFloat()
                     val t = if (record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_BOOTTIME) == AudioRecord.SUCCESS) {
                         stamp.nanoTime + (onset.sample - stamp.framePosition) * 1_000_000_000L / rate
                     } else {
@@ -152,5 +169,9 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
             try { record.stop() } catch (_: Exception) {}
             record.release()
         }
+    }
+
+    companion object {
+        const val SILENCE_DB = -90f
     }
 }

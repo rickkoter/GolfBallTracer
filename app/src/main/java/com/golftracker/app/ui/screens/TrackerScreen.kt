@@ -1,7 +1,11 @@
 package com.golftracker.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.SystemClock
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,6 +27,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.golftracker.app.export.SnapshotExporter
 import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
@@ -59,6 +67,9 @@ fun TrackerScreen(
     locationManager: LocationTrackerManager,
     repository: ShotRepository,
     processor: ShotProcessor,
+    /** Whether to listen for the strike; on whenever the app starts. */
+    isMicEnabled: Boolean,
+    onMicEnabledChange: (Boolean) -> Unit,
     onNavigateToReview: (ShotRecord) -> Unit
 ) {
     val context = LocalContext.current
@@ -67,7 +78,25 @@ fun TrackerScreen(
     var phase by remember { mutableStateOf(Phase.LISTENING) }
     var isPaused by remember { mutableStateOf(false) }
     var isListening by remember { mutableStateOf(false) }
+    // The microphone: wanted (isMicEnabled), allowed, and actually open and listening.
+    fun hasMicPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    var micPermission by remember { mutableStateOf(hasMicPermission()) }
     var isMicOn by remember { mutableStateOf(false) }
+    var micLevelDb by remember { mutableFloatStateOf(ImpactSoundDetector.SILENCE_DB) }
+    // What the last sound heard as a strike came to, when it didn't start a shot.
+    var strikeNote by remember { mutableStateOf<String?>(null) }
+    var micNote by remember { mutableStateOf<String?>(null) }
+    val micPermissionRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micPermission = granted
+        micNote = if (granted) null else "Microphone not allowed: turn it on in Settings › Apps › GolfBallTracer › Permissions"
+    }
+    // Permission can arrive while the screen is up (the prompt at launch, or Settings): check again on return.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) micPermission = hasMicPermission() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var isVideoAvailable by remember { mutableStateOf<Boolean?>(null) }
     var isFlashEnabled by remember { mutableStateOf(false) }
     var isApexEditMode by remember { mutableStateOf(false) }
@@ -152,8 +181,6 @@ fun TrackerScreen(
             return
         }
         recorder.start()
-        if (!isMicOn) isMicOn = impactSound.start()
-        detector.watchWithoutSound(!isMicOn)
         detector.startListening()
         isListening = true
     }
@@ -161,10 +188,30 @@ fun TrackerScreen(
     fun stopListening() {
         detector.stopListening()
         recorder.discard()
-        impactSound.stop()
-        isMicOn = false
         isListening = false
         phase = Phase.LISTENING
+    }
+
+    // The microphone runs while listening, if wanted and allowed. Without it, shots are looked for in motion alone.
+    LaunchedEffect(isMicEnabled, micPermission, isListening) {
+        if (isMicEnabled && micPermission && isListening) {
+            if (!isMicOn) {
+                isMicOn = impactSound.start()
+                if (!isMicOn) micNote = "Couldn't open the microphone; another app may be using it"
+            }
+        } else if (isMicOn) {
+            impactSound.stop()
+            isMicOn = false
+        }
+        if (isMicOn) micNote = null
+        detector.watchWithoutSound(!isMicOn)
+    }
+    LaunchedEffect(isMicOn) {
+        while (isMicOn) {
+            micLevelDb = impactSound.levelDb
+            delay(150)
+        }
+        micLevelDb = ImpactSoundDetector.SILENCE_DB
     }
 
     fun clearShot() {
@@ -283,8 +330,21 @@ fun TrackerScreen(
                 locationManager.recordLaunchLocation()
             }
             is ShotTrigger.Event.Captured -> if (phase == Phase.CAPTURING) analyzeCapturedShot(event.shot)
-            is ShotTrigger.Event.Missed -> if (currentShotId == null && phase == Phase.LISTENING) {
-                shotStats = "Heard a strike but didn't see a ball leave • still listening"
+            is ShotTrigger.Event.Missed -> {
+                val loud = impactSound.lastStrikeDb?.let { " (+%.0f dB)".format(it) } ?: ""
+                val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+                strikeNote = if (event.duringSwing) {
+                    "🔊 $time heard a strike$loud during a swing • no ball seen leaving"
+                } else {
+                    "🔊 $time heard a sharp sound$loud • no swing seen"
+                }
+                // Keep what the camera saw, so the miss can be worked out later.
+                if (event.duringSwing) {
+                    val note = strikeNote
+                    processor.saveMissedStrike(event.frames, event.impactNs) { saved ->
+                        scope.launch { if (strikeNote == note && saved != null) strikeNote = "$note • frames saved" }
+                    }
+                }
             }
         }
     }
@@ -500,11 +560,18 @@ fun TrackerScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         val details = if (phase == Phase.LISTENING && !isPaused) {
+                            val mic = when {
+                                !isMicEnabled -> "off (watching only)"
+                                !micPermission -> "not allowed • tap 🎤"
+                                isMicOn -> "on " + levelBar(micLevelDb)
+                                else -> "couldn't open"
+                            }
                             listOfNotNull(
                                 shotStats, saveNote, videoNote,
-                                if (!showingShot) "🎤 Mic ${if (isMicOn) "on" else "off (watching only)"} • 🎥 Video ${
+                                if (!showingShot) "🎤 Mic $mic • 🎥 Video ${
                                     when (isVideoAvailable) { true -> "on"; false -> "not available"; null -> "starting" }
-                                } • Recordings $recordingCount/${ShotRepository.MAX_RECORDINGS}" else null
+                                } • Recordings $recordingCount/${ShotRepository.MAX_RECORDINGS}" else null,
+                                micNote, strikeNote
                             )
                         } else emptyList()
                         details.forEach { Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp) }
@@ -555,6 +622,33 @@ fun TrackerScreen(
                     if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                     contentDescription = if (isPaused) "Listen for shots" else "Pause listening",
                     tint = Color.White
+                )
+            }
+            // The microphone, which hears the strike. Asks for permission if it hasn't been given.
+            IconButton(
+                onClick = {
+                    when {
+                        !micPermission -> {
+                            onMicEnabledChange(true)
+                            micPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                        else -> onMicEnabledChange(!isMicEnabled)
+                    }
+                },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(GolfDarkCard.copy(alpha = 0.85f))
+            ) {
+                val usable = isMicEnabled && micPermission
+                Icon(
+                    if (usable) Icons.Default.Mic else Icons.Default.MicOff,
+                    contentDescription = if (usable) "Turn microphone off" else "Turn microphone on",
+                    tint = when {
+                        isMicOn -> GolfNeonLime
+                        isMicEnabled && !micPermission -> GolfNeonGold
+                        else -> Color.White
+                    }
                 )
             }
 
@@ -781,3 +875,9 @@ private fun SettingSwitch(
 /** A recording longer than this with nothing going on is started afresh. */
 private const val MAX_IDLE_RECORDING_NS = 60_000_000_000L
 private const val QUIET_BEFORE_RESTART_NS = 3_000_000_000L
+
+/** A little bar showing how loud it is, so it's easy to see the microphone is hearing things. */
+private fun levelBar(db: Float): String {
+    val filled = ((db + 70f) / 60f * 8).toInt().coerceIn(0, 8)
+    return "▮".repeat(filled) + "▯".repeat(8 - filled)
+}

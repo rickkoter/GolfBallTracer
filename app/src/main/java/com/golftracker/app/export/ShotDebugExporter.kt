@@ -19,10 +19,13 @@ object ShotDebugExporter {
 
     private const val FOLDER = "GolfBallTracer"
 
-    /** Returns where the file was saved, for showing to the user, or null if saving failed. */
-    fun save(context: Context, shot: CapturedShot, tracer: List<ScreenPoint>): String? {
+    /**
+     * Returns where the file was saved, for showing to the user, or null if saving failed. [kind] starts
+     * the file's name: shot-debug for shots, missed-strike for strikes heard without a shot found.
+     */
+    fun save(context: Context, shot: CapturedShot, tracer: List<ScreenPoint>, kind: String = "shot-debug"): String? {
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-        val filename = "shot-debug_$stamp.zip"
+        val filename = "${kind}_$stamp.zip"
         val device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

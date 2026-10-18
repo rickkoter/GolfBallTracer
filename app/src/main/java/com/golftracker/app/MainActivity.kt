@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -45,6 +47,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The screen stays on while the app is open: hands-free, nobody touches the phone, and a sleeping
+        // screen would take the camera and microphone with it.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         locationManager = LocationTrackerManager(this)
         repository = ShotRepository(this)
@@ -110,6 +115,8 @@ fun MainAppScreen(
     processor: ShotProcessor
 ) {
     var currentTab by remember { mutableStateOf(AppTab.TRACKER) }
+    // Listening for the strike is on each time the app starts; the tracker's 🎤 button turns it off.
+    var isMicEnabled by rememberSaveable { mutableStateOf(true) }
     var reviewShotRecord by remember { mutableStateOf<ShotRecord?>(null) }
 
     Scaffold(
@@ -157,6 +164,8 @@ fun MainAppScreen(
                         locationManager = locationManager,
                         repository = repository,
                         processor = processor,
+                        isMicEnabled = isMicEnabled,
+                        onMicEnabledChange = { isMicEnabled = it },
                         onNavigateToReview = { shot ->
                             reviewShotRecord = shot
                             currentTab = AppTab.REVIEW

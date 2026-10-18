@@ -3,6 +3,7 @@ package com.golftracker.app.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.SystemClock
 import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotDebugExporter
 import com.golftracker.app.export.ShotTracking
@@ -11,6 +12,7 @@ import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.CapturedShot
+import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.ShotDebugArchive
 import com.golftracker.app.video.ShotVideoRecorder
 import com.golftracker.app.video.VideoRetracer
@@ -161,6 +163,30 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         _updates.emit(Update.Retraced(id, usedFlight, if (edited || usedFlight == null) null else points, note))
     }
 
+    /**
+     * Saves the frames around a strike that was heard during a swing but didn't start a shot, to
+     * Downloads/GolfBallTracer/missed-strike_*.zip, so ShotReplayTest can show why. At most one every
+     * [MISSED_STRIKE_GAP_MS], so a noisy range doesn't fill the phone.
+     */
+    fun saveMissedStrike(frames: List<LumaFrame>, impactNs: Long, onSaved: (String?) -> Unit) {
+        if (frames.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        synchronized(this) {
+            if (now - lastMissedSaveMs < MISSED_STRIKE_GAP_MS) return
+            lastMissedSaveMs = now
+        }
+        scope.launch {
+            val shot = CapturedShot(
+                candidates = emptyList(), teeX = 0.5f, teeY = 0.5f, ballRadius = null, launchTimestampNs = null,
+                aspect = frames.first().width.toFloat() / frames.first().height, framesProcessed = frames.size,
+                firstFrames = frames, impactTimestampNs = impactNs, heardImpact = true
+            )
+            onSaved(ShotDebugExporter.save(context, shot, emptyList(), kind = "missed-strike"))
+        }
+    }
+
+    private var lastMissedSaveMs = Long.MIN_VALUE / 2
+
     /** Cuts the shot out of the rolling recording. Returns the video and when its first frame was taken. */
     private fun keepVideo(clip: ShotVideoRecorder.Clip?, shot: CapturedShot, target: File): Pair<File?, Long?> {
         clip ?: return null to null
@@ -221,5 +247,6 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
     private companion object {
         /** Video kept from before the impact: the whole swing. */
         const val PRE_ROLL_NS = 2_500_000_000L
+        const val MISSED_STRIKE_GAP_MS = 15_000L
     }
 }

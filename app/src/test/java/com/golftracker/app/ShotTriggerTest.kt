@@ -65,7 +65,10 @@ class ShotTriggerTest {
      * A golfer beside the ball who stands still, swings (body turning, club sweeping back and through
      * past the ball) and hits it at [impactFrame]. With [ballFlies] false it's a practice swing: no ball.
      */
-    private fun swing(seed: Int, ballFlies: Boolean = true, swings: Boolean = true, shake: Int = 0, frames: Int = 260): List<LumaFrame> {
+    private fun swing(
+        seed: Int, ballFlies: Boolean = true, swings: Boolean = true, shake: Int = 0, frames: Int = 260,
+        radius: Float = ballRadius
+    ): List<LumaFrame> {
         val scene = Scene(w, h, seed)
         val hand = Random(seed + 2)
         return List(frames) { f ->
@@ -85,10 +88,10 @@ class ShotTriggerTest {
                     scene.rect(px, cx.toInt() - 6, cy.toInt() - 6, cx.toInt() + 6, cy.toInt() + 6, 25)
                 }
                 if (ballFlies && t <= 0) {
-                    scene.disk(px, teeX * w, teeY * h, ballRadius, 235)
+                    scene.disk(px, teeX * w, teeY * h, radius, 235)
                 } else if (ballFlies) {
                     val (x, y) = flight(t)
-                    val r = maxOf(1.2f, ballRadius * (1 - t / 3).toFloat())
+                    val r = maxOf(1.2f, radius * (1 - t / 3).toFloat())
                     scene.disk(px, x.toFloat() * w, y.toFloat() * h, r, 235)
                 }
             }
@@ -124,7 +127,7 @@ class ShotTriggerTest {
         val shot = events.filterIsInstance<ShotTrigger.Event.Captured>().single().shot
         assertEquals(heard, shot.heardImpact)
         assertNotNull("$label: launch", shot.launchTimestampNs)
-        assertTrue("$label: launch off by ${(shot.launchTimestampNs!! - impactNs) / 1e6} ms", abs(shot.launchTimestampNs!! - impactNs) <= 2 * frameNs)
+        assertTrue("$label: launch off by ${(shot.launchTimestampNs!! - impactNs) / 1e6} ms", abs(shot.launchTimestampNs - impactNs) <= 2 * frameNs)
         assertTrue("$label: thumbnails kept", shot.thumbnails.size > 100)
 
         val tracer = BallFlightFitter.fit(shot)
@@ -142,6 +145,25 @@ class ShotTriggerTest {
     @Test
     fun heardShotIsFoundAndTraced() {
         for (seed in 1..3) assertTraced(run(swing(seed), impactNs), heard = true, label = "seed $seed")
+    }
+
+    @Test
+    fun farAwayBallHandHeldIsFound() {
+        // Filmed from across the tee box: the ball is a couple of pixels across and the phone isn't still.
+        for (seed in 18..19) {
+            val started = run(swing(seed, shake = 2, radius = 2f), impactNs).filterIsInstance<ShotTrigger.Event.Started>()
+            assertEquals("seed $seed", 1, started.size)
+            assertEquals("seed $seed: tee x", teeX, started.single().ball.x, 4f / w)
+            assertEquals("seed $seed: tee y", teeY, started.single().ball.y, 4f / h)
+        }
+    }
+
+    @Test
+    fun heardShotIsFoundWhenTheSoundsClockIsSlightlyOff() {
+        for ((seed, skewMs) in listOf(16 to 90L, 17 to -90L)) {
+            val events = run(swing(seed), impactNs + skewMs * 1_000_000L)
+            assertEquals("seed $seed, sound off by $skewMs ms", 1, events.filterIsInstance<ShotTrigger.Event.Started>().size)
+        }
     }
 
     @Test
@@ -165,7 +187,10 @@ class ShotTriggerTest {
         for (seed in 10..12) {
             val events = run(swing(seed, ballFlies = false), impactNs)
             assertTrue("seed $seed", events.none { it is ShotTrigger.Event.Started })
-            assertTrue("seed $seed: the strike should be reported as missed", events.any { it is ShotTrigger.Event.Missed })
+            val missed = events.filterIsInstance<ShotTrigger.Event.Missed>().singleOrNull()
+            assertNotNull("seed $seed: the strike should be reported as missed", missed)
+            assertTrue("seed $seed: during the swing", missed!!.duringSwing)
+            assertTrue("seed $seed: with the frames around it", missed.frames.size > 60)
         }
     }
 
@@ -173,7 +198,8 @@ class ShotTriggerTest {
     fun soundWithoutASwingIsIgnored() {
         // A clap or a shot from the next bay: the ball sits there and nobody moves.
         val events = run(swing(13, ballFlies = false, swings = false), impactNs)
-        assertTrue(events.isEmpty())
+        val missed = events.single() as ShotTrigger.Event.Missed
+        assertTrue(!missed.duringSwing && missed.frames.isEmpty())
     }
 
     @Test

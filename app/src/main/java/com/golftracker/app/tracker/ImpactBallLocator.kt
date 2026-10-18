@@ -36,11 +36,14 @@ internal object ImpactBallLocator {
     private const val MIN_DROP = 25
     private const val STABLE_TOLERANCE = 20
     private const val CANDIDATES_TO_MEASURE = 24
-    private const val PEAK_SMOOTHING = 2
     private const val PEAK_SPACING = 6
     /** At least this much of the ball's middle has to have gone dark. */
     private const val MIN_GONE = 0.6f
     private const val EDGE = 0.04f
+    private const val MIN_UNCHANGED_AROUND = 0.5f
+    private const val MIN_STEADY = 0.5f
+    /** Largest ball radius, as a fraction of the frame's long side. */
+    private const val MAX_RADIUS = 0.035f
 
     /** [frames] in time order; [impactNs] on the same clock. */
     fun locate(frames: List<LumaFrame>, impactNs: Long): Found? {
@@ -76,18 +79,27 @@ internal object ImpactBallLocator {
         if (count == 0) return null
 
         val beforeFrame = LumaFrame(w, h, ByteArray(w * h) { medBefore[it].toByte() }, ref.timestampNs)
-        val maxRadius = max(w, h) * 0.06f
+        // A ball filmed from a few metres away is small; a big bright circle is something else coming or going.
+        val maxRadius = max(w, h) * MAX_RADIUS
         var best: Found? = null
         var bestScore = 0f
-        for ((px, py) in peaks(drop, w, h)) {
+        for ((px, py) in peaks(drop, medBefore, w, h)) {
             val circle = BallMeasure.find(beforeFrame, (px + 0.5f) / w, (py + 0.5f) / h)
             if (circle == null || circle.radiusCells > maxRadius) continue
             // A ball on the tee is never right at the edge of the picture; things passing out of it are.
             if (circle.x !in EDGE..1 - EDGE || circle.y !in EDGE..1 - EDGE) continue
             // The whole ball must have gone, not just the patch beside it where a club or hand came in.
-            val (gone, meanDrop) = vanished(mask, drop, w, h, circle.x * w - 0.5f, circle.y * h - 0.5f, circle.radiusCells)
+            val cx = circle.x * w - 0.5f
+            val cy = circle.y * h - 0.5f
+            val (gone, meanDrop) = vanished(medBefore, medAfter, w, h, cx, cy, circle.radiusCells)
             if (gone < MIN_GONE) continue
-            val score = circle.contrast * meanDrop * gone
+            // A ball on the tee sat still before the swing; a glove or sleeve that went was moving already.
+            val steady = steadiness(stable, w, h, cx, cy, circle.radiusCells)
+            if (steady < MIN_STEADY) continue
+            // ...and the ground around it stayed as it was. Where a body or club came over a bright patch,
+            // its surroundings were covered too.
+            if (unchangedAround(medBefore, medAfter, w, h, cx, cy, circle.radiusCells) < MIN_UNCHANGED_AROUND) continue
+            val score = circle.contrast * meanDrop * gone * steady
             if (score > bestScore) {
                 bestScore = score
                 val ball = TeeBall(circle.x, circle.y, circle.radiusCells / h)
@@ -97,8 +109,42 @@ internal object ImpactBallLocator {
         return best
     }
 
-    /** How much of the circle went dark (fraction of its middle in [mask]) and by how much on average. */
-    private fun vanished(mask: BooleanArray, drop: IntArray, w: Int, h: Int, cx: Float, cy: Float, r: Float): Pair<Float, Float> {
+    /** The fraction of the circle (and a pixel round it, for a ball lined up a pixel off) that held still before. */
+    private fun steadiness(stable: BooleanArray, w: Int, h: Int, cx: Float, cy: Float, r: Float): Float {
+        val reach = r + 1f
+        var n = 0
+        var still = 0
+        for (y in (cy - reach).toInt()..(cy + reach).toInt() + 1) for (x in (cx - reach).toInt()..(cx + reach).toInt() + 1) {
+            if (x !in 0 until w || y !in 0 until h) continue
+            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > reach * reach) continue
+            n++
+            if (stable[y * w + x]) still++
+        }
+        return if (n == 0) 0f else still.toFloat() / n
+    }
+
+    /** The fraction of a ring around the circle that looks the same after as before. */
+    private fun unchangedAround(before: IntArray, after: IntArray, w: Int, h: Int, cx: Float, cy: Float, r: Float): Float {
+        val inner = r * 1.6f + 1f
+        val outer = r * 2.6f + 3f
+        var n = 0
+        var same = 0
+        for (y in (cy - outer).toInt()..(cy + outer).toInt() + 1) for (x in (cx - outer).toInt()..(cx + outer).toInt() + 1) {
+            if (x !in 0 until w || y !in 0 until h) continue
+            val d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy)
+            if (d2 < inner * inner || d2 > outer * outer) continue
+            n++
+            if (abs(before[y * w + x] - after[y * w + x]) < MIN_DROP) same++
+        }
+        return if (n == 0) 0f else same.toFloat() / n
+    }
+
+    /**
+     * How much of the circle went dark (fraction of its middle) and by how much on average. Steadiness
+     * isn't asked for here: a ball a couple of pixels across, lined up a pixel off between frames,
+     * wouldn't look steady, and it's already known to be a ball.
+     */
+    private fun vanished(before: IntArray, after: IntArray, w: Int, h: Int, cx: Float, cy: Float, r: Float): Pair<Float, Float> {
         val inner = max(0.8f, r * 0.7f)
         var n = 0
         var gone = 0
@@ -110,42 +156,39 @@ internal object ImpactBallLocator {
             if (dx * dx + dy * dy > inner * inner) continue
             n++
             val i = y * w + x
-            if (mask[i]) { gone++; sum += drop[i] }
+            val d = before[i] - after[i]
+            if (d >= max(MIN_DROP, before[i] / 5)) { gone++; sum += d }
         }
         return if (n == 0 || gone == 0) 0f to 0f else gone.toFloat() / n to sum.toFloat() / gone
     }
 
     /**
-     * Where the brightness dropped most, as local peaks of the drop smoothed over a few pixels, strongest
-     * first. A ball's patch of drop often runs into the club's or a hand's, so these are looked for
-     * within the patches rather than taking each patch as one thing.
+     * Spots to measure for a ball, most promising first: where the brightness dropped and, in the
+     * picture from before, there was a spot brighter than its surroundings. Looking for both keeps a
+     * ball a couple of pixels across ahead of the many small drops that textured grass and a slightly
+     * shaking camera leave everywhere. A ball's patch of drop also often runs into the club's or a
+     * hand's, so spots are looked for within patches rather than taking each patch as one thing.
      */
-    private fun peaks(drop: IntArray, w: Int, h: Int): List<Pair<Int, Int>> {
-        // Summed-area table, for the mean drop in a box around each pixel.
-        val sat = LongArray((w + 1) * (h + 1))
-        for (y in 0 until h) {
-            var row = 0L
-            for (x in 0 until w) {
-                row += drop[y * w + x]
-                sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row
-            }
+    private fun peaks(drop: IntArray, before: IntArray, w: Int, h: Int): List<Pair<Int, Int>> {
+        val dropSum = SummedArea(drop, w, h)
+        val beforeSum = SummedArea(before, w, h)
+        val score = FloatArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            if (drop[y * w + x] == 0) continue
+            // Brighter than its surroundings, at the scale of a far ball and of a near one.
+            val small = beforeSum.mean(x, y, 1) - beforeSum.mean(x, y, 4)
+            val large = beforeSum.mean(x, y, 4) - beforeSum.mean(x, y, 12)
+            val prominence = max(small, large)
+            if (prominence <= 0f) continue
+            score[y * w + x] = dropSum.mean(x, y, 1) * prominence
         }
-        val r = PEAK_SMOOTHING
-        fun boxMean(x: Int, y: Int): Long {
-            val x0 = max(0, x - r); val y0 = max(0, y - r)
-            val x1 = min(w - 1, x + r); val y1 = min(h - 1, y + r)
-            val s = sat[(y1 + 1) * (w + 1) + x1 + 1] - sat[y0 * (w + 1) + x1 + 1] - sat[(y1 + 1) * (w + 1) + x0] + sat[y0 * (w + 1) + x0]
-            return s / ((x1 - x0 + 1) * (y1 - y0 + 1))
-        }
-        val smooth = LongArray(w * h)
-        for (y in 0 until h) for (x in 0 until w) if (drop[y * w + x] > 0) smooth[y * w + x] = boxMean(x, y)
-        val found = ArrayList<Triple<Int, Int, Long>>()
+        val found = ArrayList<Triple<Int, Int, Float>>()
         for (y in 1 until h - 1) for (x in 1 until w - 1) {
-            val v = smooth[y * w + x]
-            if (v < MIN_DROP) continue
+            val v = score[y * w + x]
+            if (v <= 0f) continue
             var isPeak = true
             loop@ for (dy in -1..1) for (dx in -1..1) {
-                if ((dx != 0 || dy != 0) && smooth[(y + dy) * w + x + dx] > v) { isPeak = false; break@loop }
+                if ((dx != 0 || dy != 0) && score[(y + dy) * w + x + dx] > v) { isPeak = false; break@loop }
             }
             if (isPeak) found += Triple(x, y, v)
         }
@@ -158,6 +201,28 @@ internal object ImpactBallLocator {
             if (kept.size == CANDIDATES_TO_MEASURE) break
         }
         return kept
+    }
+
+    /** Means over square boxes of an image in constant time. */
+    private class SummedArea(values: IntArray, private val w: Int, private val h: Int) {
+        private val sat = LongArray((w + 1) * (h + 1))
+        init {
+            for (y in 0 until h) {
+                var row = 0L
+                for (x in 0 until w) {
+                    row += values[y * w + x]
+                    sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row
+                }
+            }
+        }
+
+        /** Mean of the box reaching [r] pixels each way from (x, y), clipped to the image. */
+        fun mean(x: Int, y: Int, r: Int): Float {
+            val x0 = max(0, x - r); val y0 = max(0, y - r)
+            val x1 = min(w - 1, x + r); val y1 = min(h - 1, y + r)
+            val s = sat[(y1 + 1) * (w + 1) + x1 + 1] - sat[y0 * (w + 1) + x1 + 1] - sat[(y1 + 1) * (w + 1) + x0] + sat[y0 * (w + 1) + x0]
+            return s.toFloat() / ((x1 - x0 + 1) * (y1 - y0 + 1))
+        }
     }
 
     /**
