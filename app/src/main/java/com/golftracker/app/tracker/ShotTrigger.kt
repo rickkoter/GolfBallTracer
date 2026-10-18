@@ -123,7 +123,7 @@ class ShotTrigger(
             if (t < listenSinceNs) continue
             val frames = buffer.map { it.frame }
             // The sound's clock and the camera's may disagree a little; look either side if need be.
-            val found = listOf(0L, CLOCK_SLACK_NS, -CLOCK_SLACK_NS).firstNotNullOfOrNull { ImpactBallLocator.locate(frames, t + it) }
+            val found = listOf(0L, CLOCK_SLACK_NS, -CLOCK_SLACK_NS).firstNotNullOfOrNull { ImpactBallLocator.locate(frames, t + it, heardNs = t) }
             if (found != null) {
                 start(found, t, heard = true)
                 return

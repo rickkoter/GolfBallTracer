@@ -67,7 +67,7 @@ class ShotTriggerTest {
      */
     private fun swing(
         seed: Int, ballFlies: Boolean = true, swings: Boolean = true, shake: Int = 0, frames: Int = 260,
-        radius: Float = ballRadius
+        radius: Float = ballRadius, whiteShoe: Boolean = false
     ): List<LumaFrame> {
         val scene = Scene(w, h, seed)
         val hand = Random(seed + 2)
@@ -80,6 +80,8 @@ class ShotTriggerTest {
                 val phase = if (!swings) 0.0 else ((f - (impactFrame - 30)) / 45.0).coerceIn(0.0, 1.0)
                 val turn = (40 * sin(phase * Math.PI)).toInt()
                 scene.rect(px, 30 + turn, 260, 110 + turn, 560, 40)
+                // A white shoe on the ground that turns as the heel lifts, a moment after impact.
+                if (whiteShoe) scene.disk(px, 70f + (if (t > 0.1) 4f else 0f), 568f - (if (t > 0.1) 6f else 0f), 6f, 240)
                 // The club: a bar sweeping round from behind the golfer, past the ball and on through.
                 if (phase in 0.01..0.99) {
                     val angle = Math.PI * (0.2 + 1.6 * phase)
@@ -155,6 +157,18 @@ class ShotTriggerTest {
             assertEquals("seed $seed", 1, started.size)
             assertEquals("seed $seed: tee x", teeX, started.single().ball.x, 4f / w)
             assertEquals("seed $seed: tee y", teeY, started.single().ball.y, 4f / h)
+        }
+    }
+
+    @Test
+    fun farAwayBallIsChosenOverAWhiteShoeThatMovesAfterImpact() {
+        // As filmed at a range: the shoe is bigger and brighter than the ball a few metres off, and also
+        // changes after the strike, but later than the ball leaves.
+        for (seed in 20..21) {
+            val started = run(swing(seed, radius = 1.5f, whiteShoe = true), impactNs).filterIsInstance<ShotTrigger.Event.Started>()
+            assertEquals("seed $seed", 1, started.size)
+            assertEquals("seed $seed: tee x", teeX, started.single().ball.x, 3f / w)
+            assertEquals("seed $seed: tee y", teeY, started.single().ball.y, 3f / h)
         }
     }
 

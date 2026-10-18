@@ -73,10 +73,13 @@ class OnsetDetector(
     companion object {
         /** Quieter than this (out of 32768) is silence, whatever the background. */
         const val MIN_RMS = 6f
-        /** How far above the background a strike is: 16 dB. */
-        const val RATIO = 6f
-        /** How much louder than the window just before. */
-        const val RISE = 3f
+        /**
+         * How far above the background a strike is: 25 dB. Real strikes recorded at a range (driver, phone
+         * a few metres away) were 53–56 dB above it; voices and the range's noise stayed under 30.
+         */
+        const val RATIO = 18f
+        /** How much louder than the moment just before: 12 dB. Those strikes rose 21–42 dB at once. */
+        const val RISE = 4f
         const val REFRACTORY_S = 0.3
     }
 }

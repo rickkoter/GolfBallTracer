@@ -40,13 +40,25 @@ internal object ImpactBallLocator {
     /** At least this much of the ball's middle has to have gone dark. */
     private const val MIN_GONE = 0.6f
     private const val EDGE = 0.04f
-    private const val MIN_UNCHANGED_AROUND = 0.5f
+    private const val MIN_UNCHANGED_AROUND = 0.45f
     private const val MIN_STEADY = 0.5f
+    /** The rings checked for other change around a candidate, in pixels, and how much of one must be still. */
+    private val ISOLATION_RINGS = listOf(3 to 8, 8 to 16, 16 to 28)
+    private const val MIN_ISOLATION = 0.6f
+    private const val MIN_TINY_CONTRAST = 25f
+    /** A struck ball goes within this long of the sound of the strike (the club may cover it just before). */
+    private const val MAX_VANISH_BEFORE_STRIKE_NS = 80_000_000L
+    private const val MAX_VANISH_AFTER_STRIKE_NS = 150_000_000L
+    /** Candidates scoring at least this share of the best one are taken seriously when choosing by timing. */
+    private const val STRONG = 0.5f
     /** Largest ball radius, as a fraction of the frame's long side. */
     private const val MAX_RADIUS = 0.035f
 
-    /** [frames] in time order; [impactNs] on the same clock. */
-    fun locate(frames: List<LumaFrame>, impactNs: Long): Found? {
+    /**
+     * [frames] in time order; [impactNs] on the same clock. With [heardNs], when the strike was heard,
+     * the ball must have gone right then: something that left earlier or later was something else.
+     */
+    fun locate(frames: List<LumaFrame>, impactNs: Long, heardNs: Long? = null): Found? {
         if (frames.isEmpty()) return null
         fun at(s: Double) = impactNs + (s * 1e9).toLong()
         val before = pick(frames.filter { it.timestampNs in at(-BEFORE_FROM_S)..at(-BEFORE_TO_S) }, MAX_BEFORE_FRAMES)
@@ -81,10 +93,15 @@ internal object ImpactBallLocator {
         val beforeFrame = LumaFrame(w, h, ByteArray(w * h) { medBefore[it].toByte() }, ref.timestampNs)
         // A ball filmed from a few metres away is small; a big bright circle is something else coming or going.
         val maxRadius = max(w, h) * MAX_RADIUS
-        var best: Found? = null
-        var bestScore = 0f
-        for ((px, py) in peaks(drop, medBefore, w, h)) {
-            val circle = BallMeasure.find(beforeFrame, (px + 0.5f) / w, (py + 0.5f) / h)
+        // The frames where the ball could have gone, lined up with the reference once for all candidates.
+        val transition by lazy {
+            frames.filter { it.timestampNs > before.last().timestampNs && it.timestampNs <= after.last().timestampNs }
+                .map { f -> FrameShift.estimate(ref, f).let { (sx, sy) -> Triple(f, sx, sy) } }
+        }
+        class Candidate(val found: Found, val score: Float)
+        val candidates = ArrayList<Candidate>()
+        for ((px, py) in peaks(drop, medBefore, medAfter, w, h)) {
+            val circle = BallMeasure.find(beforeFrame, (px + 0.5f) / w, (py + 0.5f) / h) ?: tinyBall(medBefore, w, h, px, py)
             if (circle == null || circle.radiusCells > maxRadius) continue
             // A ball on the tee is never right at the edge of the picture; things passing out of it are.
             if (circle.x !in EDGE..1 - EDGE || circle.y !in EDGE..1 - EDGE) continue
@@ -100,13 +117,43 @@ internal object ImpactBallLocator {
             // its surroundings were covered too.
             if (unchangedAround(medBefore, medAfter, w, h, cx, cy, circle.radiusCells) < MIN_UNCHANGED_AROUND) continue
             val score = circle.contrast * meanDrop * gone * steady
-            if (score > bestScore) {
-                bestScore = score
-                val ball = TeeBall(circle.x, circle.y, circle.radiusCells / h)
-                best = Found(ball, referenceIndex, vanishTime(frames, ref, ball, before.last(), after.last(), medBefore, medAfter), circle.contrast)
-            }
+            val ball = TeeBall(circle.x, circle.y, circle.radiusCells / h)
+            if (candidates.any { abs(it.found.ball.x - ball.x) * w < 2 && abs(it.found.ball.y - ball.y) * h < 2 }) continue
+            val vanishedNs = vanishTime(transition, w, h, ball, before.last(), after.last(), medBefore, medAfter)
+            if (heardNs != null && vanishedNs - heardNs !in -MAX_VANISH_BEFORE_STRIKE_NS..MAX_VANISH_AFTER_STRIKE_NS) continue
+            candidates += Candidate(Found(ball, referenceIndex, vanishedNs, circle.contrast), score)
         }
-        return best
+        // The ball leaves the instant it's struck. A shoe that turns or a heel that lifts in the follow-through
+        // changes a little later, so of the strong candidates, only those that went first are considered.
+        val top = candidates.maxOfOrNull { it.score } ?: return null
+        val strong = candidates.filter { it.score >= STRONG * top }
+        val first = strong.minOf { it.found.vanishedNs }
+        val frameNs = (after.last().timestampNs - before.last().timestampNs) / max(1, transition.size)
+        return strong.filter { it.found.vanishedNs <= first + frameNs }.maxBy { it.score }.found
+    }
+
+    /**
+     * A ball too small to fit a circle to (a pixel or so across, filmed from far away): a pixel clearly
+     * brighter than nearly everything around it, taken as a ball of radius one.
+     */
+    private fun tinyBall(before: IntArray, w: Int, h: Int, x: Int, y: Int): BallMeasure.Circle? {
+        // Room for the ring, even after moving a pixel to the brightest spot.
+        if (x < 4 || y < 4 || x > w - 5 || y > h - 5) return null
+        // The brightest pixel right there, in case the peak is a pixel off.
+        var bx = x
+        var by = y
+        for (dy in -1..1) for (dx in -1..1) if (before[(y + dy) * w + x + dx] > before[by * w + bx]) { bx = x + dx; by = y + dy }
+        // Compared with the brighter part of what's around it, so the edge of a dark shoe or shadow
+        // beside a patch of grass doesn't make the grass look like a ball.
+        val ring = ArrayList<Int>(40)
+        for (dy in -3..3) for (dx in -3..3) {
+            if (max(abs(dx), abs(dy)) < 2) continue
+            ring += before[(by + dy) * w + bx + dx]
+        }
+        ring.sort()
+        val contrast = (before[by * w + bx] - ring[ring.size * 3 / 4]).toFloat()
+        if (contrast < MIN_TINY_CONTRAST) return null
+        return BallMeasure.Circle((bx + 0.5f) / w, (by + 0.5f) / h, 1f, contrast)
     }
 
     /** The fraction of the circle (and a pixel round it, for a ball lined up a pixel off) that held still before. */
@@ -169,9 +216,11 @@ internal object ImpactBallLocator {
      * shaking camera leave everywhere. A ball's patch of drop also often runs into the club's or a
      * hand's, so spots are looked for within patches rather than taking each patch as one thing.
      */
-    private fun peaks(drop: IntArray, before: IntArray, w: Int, h: Int): List<Pair<Int, Int>> {
+    private fun peaks(drop: IntArray, before: IntArray, after: IntArray, w: Int, h: Int): List<Pair<Int, Int>> {
         val dropSum = SummedArea(drop, w, h)
         val beforeSum = SummedArea(before, w, h)
+        // Everything that changed either way, to tell a lone ball from part of a moving golfer.
+        val changedSum = SummedArea(IntArray(w * h) { if (abs(before[it] - after[it]) >= MIN_DROP) 1 else 0 }, w, h)
         val score = FloatArray(w * h)
         for (y in 0 until h) for (x in 0 until w) {
             if (drop[y * w + x] == 0) continue
@@ -180,7 +229,12 @@ internal object ImpactBallLocator {
             val large = beforeSum.mean(x, y, 4) - beforeSum.mean(x, y, 12)
             val prominence = max(small, large)
             if (prominence <= 0f) continue
-            score[y * w + x] = dropSum.mean(x, y, 1) * prominence
+            // A ball leaves a lone spot of change in grass that otherwise stayed the same; a shoe or a
+            // hand is part of a whole body that moved. Looked at in rings of a few sizes, since a ball
+            // close to the camera fills the small one itself.
+            val isolation = ISOLATION_RINGS.maxOf { (inner, outer) -> 1f - changedSum.ringMean(x, y, inner, outer) }
+            if (isolation < MIN_ISOLATION) continue
+            score[y * w + x] = dropSum.mean(x, y, 1) * prominence * isolation * isolation
         }
         val found = ArrayList<Triple<Int, Int, Float>>()
         for (y in 1 until h - 1) for (x in 1 until w - 1) {
@@ -218,10 +272,22 @@ internal object ImpactBallLocator {
 
         /** Mean of the box reaching [r] pixels each way from (x, y), clipped to the image. */
         fun mean(x: Int, y: Int, r: Int): Float {
+            val (sum, n) = box(x, y, r)
+            return sum.toFloat() / n
+        }
+
+        /** Mean over the square ring between [inner] and [outer] pixels from (x, y). */
+        fun ringMean(x: Int, y: Int, inner: Int, outer: Int): Float {
+            val (outSum, outN) = box(x, y, outer)
+            val (inSum, inN) = box(x, y, inner)
+            return if (outN == inN) 0f else (outSum - inSum).toFloat() / (outN - inN)
+        }
+
+        private fun box(x: Int, y: Int, r: Int): Pair<Long, Int> {
             val x0 = max(0, x - r); val y0 = max(0, y - r)
             val x1 = min(w - 1, x + r); val y1 = min(h - 1, y + r)
             val s = sat[(y1 + 1) * (w + 1) + x1 + 1] - sat[y0 * (w + 1) + x1 + 1] - sat[(y1 + 1) * (w + 1) + x0] + sat[y0 * (w + 1) + x0]
-            return s.toFloat() / ((x1 - x0 + 1) * (y1 - y0 + 1))
+            return s to (x1 - x0 + 1) * (y1 - y0 + 1)
         }
     }
 
@@ -230,11 +296,9 @@ internal object ImpactBallLocator {
      * strike can fall among the "after" frames when the time it was looked for is a guess.
      */
     private fun vanishTime(
-        frames: List<LumaFrame>, ref: LumaFrame, ball: TeeBall,
+        transition: List<Triple<LumaFrame, Int, Int>>, w: Int, h: Int, ball: TeeBall,
         lastBefore: LumaFrame, lastAfter: LumaFrame, medBefore: IntArray, medAfter: IntArray
     ): Long {
-        val w = ref.width
-        val h = ref.height
         val cx = (ball.x * w).toInt().coerceIn(0, w - 1)
         val cy = (ball.y * h).toInt().coerceIn(0, h - 1)
         val r = max(0, (ball.radius * h * 0.6f).toInt())
@@ -249,9 +313,7 @@ internal object ImpactBallLocator {
         val present = spot { medBefore[it] }
         val gone = spot { medAfter[it] }
         val middle = (present + gone) / 2
-        for (f in frames) {
-            if (f.timestampNs <= lastBefore.timestampNs || f.timestampNs > lastAfter.timestampNs) continue
-            val (sx, sy) = FrameShift.estimate(ref, f)
+        for ((f, sx, sy) in transition) {
             val level = spot { i ->
                 val x = (i % w + sx).coerceIn(0, w - 1)
                 val y = (i / w + sy).coerceIn(0, h - 1)

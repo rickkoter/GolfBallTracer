@@ -21,15 +21,14 @@ class BallTrackerAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     private val sampler = LumaSampler(targetLongSide)
+    private val rate = FrameRateLimiter(minFrameIntervalNs)
     private var clockOffsetNs: Long? = null
-    private var lastKeptNs = Long.MIN_VALUE
 
     override fun analyze(image: ImageProxy) {
         try {
             if (!wantsFrames()) return
             val timestamp = toElapsedRealtime(image.imageInfo.timestamp)
-            if (timestamp - lastKeptNs < minFrameIntervalNs) return
-            lastKeptNs = timestamp
+            if (!rate.keep(timestamp)) return
             val plane = image.planes[0]
             val crop = image.cropRect
             onFrame(
@@ -56,5 +55,17 @@ class BallTrackerAnalyzer(
             if (abs(boot - sensorNs) <= abs(mono - sensorNs)) 0L else boot - mono
         }.also { clockOffsetNs = it }
         return sensorNs + offset
+    }
+}
+
+/** Lets frames through no closer together than [minIntervalNs]. */
+class FrameRateLimiter(private val minIntervalNs: Long) {
+    private var lastKeptNs: Long? = null
+
+    fun keep(timestampNs: Long): Boolean {
+        val last = lastKeptNs
+        if (last != null && timestampNs - last < minIntervalNs) return false
+        lastKeptNs = timestampNs
+        return true
     }
 }
