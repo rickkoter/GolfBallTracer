@@ -184,7 +184,7 @@ class ShotRecordingTest {
         assertEquals(setOf("record.json", "tracking.json", "shot.json", "frames.bin", "video.mp4"), names.toSet())
         assertArrayEquals(video, videoBack)
         assertEquals(true, trackingBack!!.heardImpact)
-        assertEquals(2, trackingBack!!.liveTracer.size)
+        assertEquals(2, trackingBack.liveTracer.size)
 
         val archive = ShotDebugArchive.read(ByteArrayInputStream(bytes))
         val back = archive.toCapturedShot()

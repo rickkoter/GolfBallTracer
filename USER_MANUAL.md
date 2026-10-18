@@ -74,6 +74,9 @@ Each shot keeps a **recording**: the video from just before the swing to the end
 - **Limit**: the phone keeps recordings for up to **32 shots**. When that's reached, listening stops and the app offers to **remove the recordings of the earliest 18 shots**. Those shots stay in your history with their snapshots and distances. Share any you want to keep first. Until you make room, no new shots are recorded; tap the banner to bring the offer back.
 - Diagnostic frames for each shot are also saved to `Downloads/GolfBallTracer/` as before.
 
+### Debug Recording
+For working out why shots are missed: **Settings › Start debug recording** records up to 45 seconds of everything (the video, the microphone's sound, every frame the shot detector looks at, and each decision it makes) whether or not a shot is found. Swing and hit as usual while it runs; the banner shows the time, and **Stop debug** ends it early. Shots found meanwhile are noted but not saved to your history. The recording is saved to `Downloads/GolfBallTracer/debug-session_*.zip` (roughly 100–200 MB) and can be replayed on a computer with `DebugSessionReplayTest`, which also shows how close missed strikes came to being heard.
+
 ---
 
 ## 3. Tracer Visual Styles & Apex Tuning

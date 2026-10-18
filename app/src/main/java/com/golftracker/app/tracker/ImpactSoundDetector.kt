@@ -24,7 +24,14 @@ import kotlin.math.sqrt
  * or two, while voices, wind and engines swell. The background follows the quiet between sounds,
  * dropping quickly and rising slowly so a strike doesn't raise it.
  */
-class OnsetDetector(private val sampleRate: Int) {
+class OnsetDetector(
+    private val sampleRate: Int,
+    /**
+     * For working out thresholds offline: called for every window with where it starts, how loud it
+     * was, the background level and the window before it.
+     */
+    private val onWindow: ((sample: Long, rms: Float, background: Float, previous: Float) -> Unit)? = null
+) {
 
     /** Where a strike starts, as a sample count since the stream began, and how far above the background it was. */
     data class Onset(val sample: Long, val ratio: Float)
@@ -50,6 +57,7 @@ class OnsetDetector(private val sampleRate: Int) {
             inWindow = 0
 
             if (background < 0) background = rms
+            onWindow?.invoke(windowStart, rms, background, previous)
             val loud = rms >= MIN_RMS && rms >= RATIO * max(background, 1f)
             val sudden = rms >= RISE * max(previous, 1f)
             if (loud && sudden && windowStart - lastOnset >= sampleRate * REFRACTORY_S) {
@@ -62,7 +70,7 @@ class OnsetDetector(private val sampleRate: Int) {
         return found ?: emptyList()
     }
 
-    private companion object {
+    companion object {
         /** Quieter than this (out of 32768) is silence, whatever the background. */
         const val MIN_RMS = 6f
         /** How far above the background a strike is: 16 dB. */
@@ -77,7 +85,11 @@ class OnsetDetector(private val sampleRate: Int) {
  * Listens on the microphone for club strikes and reports when they happened, on the
  * [SystemClock.elapsedRealtimeNanos] clock the camera frames are also put on.
  */
-class ImpactSoundDetector(private val context: Context, private val onImpact: (Long) -> Unit) {
+class ImpactSoundDetector(
+    private val context: Context,
+    /** When a strike was heard, and how far above the background it stood out in dB. */
+    private val onImpact: (timestampNs: Long, strengthDb: Float) -> Unit
+) {
 
     @Volatile
     private var running = false
@@ -86,6 +98,13 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
     @Volatile
     var levelDb = SILENCE_DB
         private set
+
+    /**
+     * Gets every buffer of sound as it's read, with when its first sample was captured and the sample
+     * rate, for a debug recording.
+     */
+    @Volatile
+    var audioTap: ((samples: ShortArray, count: Int, firstSampleNs: Long, sampleRate: Int) -> Unit)? = null
 
     /** How far above the background the last strike heard stood out, in dB. */
     @Volatile
@@ -148,18 +167,27 @@ class ImpactSoundDetector(private val context: Context, private val onImpact: (L
             while (running) {
                 val n = record.read(buffer, 0, buffer.size)
                 if (n <= 0) continue
+                audioTap?.let { tap ->
+                    val first = if (record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_BOOTTIME) == AudioRecord.SUCCESS) {
+                        stamp.nanoTime + (read - stamp.framePosition) * 1_000_000_000L / rate
+                    } else {
+                        SystemClock.elapsedRealtimeNanos() - n * 1_000_000_000L / rate
+                    }
+                    tap(buffer, n, first, rate)
+                }
                 var peak = 1
                 for (i in 0 until n) peak = max(peak, abs(buffer[i].toInt()))
                 levelDb = (20 * log10(peak / 32768.0)).toFloat()
                 for (onset in onsets.feed(buffer, n, read)) {
-                    lastStrikeDb = (20 * log10(onset.ratio.toDouble())).toFloat()
+                    val strength = (20 * log10(onset.ratio.toDouble())).toFloat()
+                    lastStrikeDb = strength
                     val t = if (record.getTimestamp(stamp, AudioTimestamp.TIMEBASE_BOOTTIME) == AudioRecord.SUCCESS) {
                         stamp.nanoTime + (onset.sample - stamp.framePosition) * 1_000_000_000L / rate
                     } else {
                         // Without a timestamp, assume the last sample read was just captured.
                         SystemClock.elapsedRealtimeNanos() - (read + n - onset.sample) * 1_000_000_000L / rate
                     }
-                    onImpact(t)
+                    onImpact(t, strength)
                 }
                 read += n
             }

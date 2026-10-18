@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.golftracker.app.debug.DebugSessionRecorder
 import com.golftracker.app.export.SnapshotExporter
 import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
@@ -158,11 +159,32 @@ fun TrackerScreen(
     // Watches the camera and listens for the strike; a shot starts by itself.
     val events = remember { Channel<ShotTrigger.Event>(Channel.UNLIMITED) }
     val detector = remember { AutoShotDetector { events.trySend(it) } }
-    val impactSound = remember { ImpactSoundDetector(context) { detector.onImpactSound(it) } }
+    // A debug recording keeps everything seen and heard for a while, shot or not, to work out misses later.
+    val debugRecorder = remember { DebugSessionRecorder(context) }
+    var isDebugRecording by remember { mutableStateOf(false) }
+    var isSavingDebug by remember { mutableStateOf(false) }
+    var debugSeconds by remember { mutableIntStateOf(0) }
+    var debugNote by remember { mutableStateOf<String?>(null) }
+    val impactSound = remember {
+        ImpactSoundDetector(context) { t, db ->
+            detector.onImpactSound(t)
+            debugRecorder.log("strike-heard", "%+.1f dB".format(db), t)
+        }
+    }
     val recorder = remember { ShotVideoRecorder(context) }
-    val analyzer = remember { BallTrackerAnalyzer(wantsFrames = { detector.wantsFrames }, onFrame = detector::offerFrame) }
+    val analyzer = remember {
+        BallTrackerAnalyzer(
+            wantsFrames = { detector.wantsFrames || debugRecorder.isActive },
+            onFrame = {
+                detector.offerFrame(it)
+                debugRecorder.onFrame(it)
+            }
+        )
+    }
     DisposableEffect(Unit) {
         onDispose {
+            impactSound.audioTap = null
+            debugRecorder.abandon()
             detector.close()
             impactSound.stop()
             recorder.discard()
@@ -192,9 +214,10 @@ fun TrackerScreen(
         phase = Phase.LISTENING
     }
 
-    // The microphone runs while listening, if wanted and allowed. Without it, shots are looked for in motion alone.
-    LaunchedEffect(isMicEnabled, micPermission, isListening) {
-        if (isMicEnabled && micPermission && isListening) {
+    // The microphone runs while listening, if wanted and allowed. Without it, shots are looked for in motion
+    // alone. A debug recording always records sound, since working out how strikes sound is what it's for.
+    LaunchedEffect(isMicEnabled, micPermission, isListening, isDebugRecording) {
+        if ((isMicEnabled || isDebugRecording) && micPermission && (isListening || isDebugRecording)) {
             if (!isMicOn) {
                 isMicOn = impactSound.start()
                 if (!isMicOn) micNote = "Couldn't open the microphone; another app may be using it"
@@ -237,8 +260,15 @@ fun TrackerScreen(
     fun resetShot() {
         clearShot()
         if (phase == Phase.CAPTURING) {
-            stopListening()
-            startListening()
+            if (isDebugRecording) {
+                // Keep the debug recording's video running.
+                detector.stopListening()
+                detector.startListening()
+                phase = Phase.LISTENING
+            } else {
+                stopListening()
+                startListening()
+            }
         }
     }
 
@@ -317,9 +347,78 @@ fun TrackerScreen(
         startListening()
     }
 
+    // In a debug recording a shot is only noted, not saved, and the video keeps running.
+    suspend fun noteDebugShot(shot: CapturedShot) {
+        phase = Phase.ANALYZING
+        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitFlight(shot) }
+        val detail = if (fitted == null) "no ball flight found" else "tracer %d points, ball followed %.2f s".format(fitted.tracer.size, fitted.trackedSeconds)
+        debugRecorder.log("shot-captured", detail)
+        clearShot()
+        shotStats = "Debug: shot found • $detail (not saved)"
+        phase = Phase.LISTENING
+        detector.startListening()
+    }
+
+    suspend fun startDebugRecording() {
+        if (isDebugRecording || isSavingDebug) return
+        if (!micPermission) micPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        detector.stopListening()
+        clearShot()
+        phase = Phase.LISTENING
+        isPaused = false
+        // The video starts afresh with the recording.
+        recorder.stop()?.file?.delete()
+        if (!debugRecorder.start()) {
+            debugNote = "Couldn't start a debug recording"
+            startListening()
+            return
+        }
+        impactSound.audioTap = debugRecorder::onAudio
+        debugRecorder.log("settings", "mic ${if (isMicEnabled) "on" else "off"}, video ${if (isVideoAvailable == true) "on" else "off"}")
+        recorder.start()
+        // Listening even at the recording limit: nothing is saved as a shot while debugging.
+        detector.startListening()
+        isListening = true
+        isDebugRecording = true
+        debugNote = null
+    }
+
+    suspend fun stopDebugRecording() {
+        if (!isDebugRecording) return
+        isDebugRecording = false
+        isSavingDebug = true
+        impactSound.audioTap = null
+        withContext(Dispatchers.IO) { debugRecorder.stop() }
+        debugNote = "Saving debug recording…"
+        val clip = recorder.stop()
+        val saved = withContext(Dispatchers.IO) { debugRecorder.finish(clip?.file, clip?.startNs, isMicOn) }
+        debugNote = saved?.let { "🐞 Debug recording saved to $it" } ?: "Couldn't save the debug recording"
+        isSavingDebug = false
+        // Back to normal listening, limits and all.
+        detector.stopListening()
+        isListening = false
+        startListening()
+    }
+
+    LaunchedEffect(isDebugRecording) {
+        while (isDebugRecording) {
+            debugSeconds = ((SystemClock.elapsedRealtimeNanos() - debugRecorder.startedNs) / 1_000_000_000L).toInt()
+            if (debugSeconds >= DebugSessionRecorder.MAX_SECONDS) {
+                stopDebugRecording()
+                break
+            }
+            delay(250)
+        }
+    }
+
     suspend fun handle(event: ShotTrigger.Event) {
         when (event) {
             is ShotTrigger.Event.Started -> {
+                debugRecorder.log(
+                    "shot-started",
+                    "ball at (%.3f, %.3f) radius %.4f, %s".format(event.ball.x, event.ball.y, event.ball.radius, if (event.heard) "heard" else "seen only"),
+                    event.impactNs
+                )
                 clearShot()
                 phase = Phase.CAPTURING
                 stillShift = event.stillShiftX to event.stillShiftY
@@ -329,8 +428,11 @@ fun TrackerScreen(
                 launchRotation = orientation.rotationMatrix()
                 locationManager.recordLaunchLocation()
             }
-            is ShotTrigger.Event.Captured -> if (phase == Phase.CAPTURING) analyzeCapturedShot(event.shot)
+            is ShotTrigger.Event.Captured -> if (phase == Phase.CAPTURING) {
+                if (isDebugRecording) noteDebugShot(event.shot) else analyzeCapturedShot(event.shot)
+            }
             is ShotTrigger.Event.Missed -> {
+                debugRecorder.log("strike-missed", if (event.duringSwing) "during a swing, no ball seen leaving" else "no swing seen", event.impactNs)
                 val loud = impactSound.lastStrikeDb?.let { " (+%.0f dB)".format(it) } ?: ""
                 val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
                 strikeNote = if (event.duringSwing) {
@@ -339,7 +441,7 @@ fun TrackerScreen(
                     "🔊 $time heard a sharp sound$loud • no swing seen"
                 }
                 // Keep what the camera saw, so the miss can be worked out later.
-                if (event.duringSwing) {
+                if (event.duringSwing && !isDebugRecording) {
                     val note = strikeNote
                     processor.saveMissedStrike(event.frames, event.impactNs) { saved ->
                         scope.launch { if (strikeNote == note && saved != null) strikeNote = "$note • frames saved" }
@@ -383,7 +485,7 @@ fun TrackerScreen(
         while (true) {
             delay(5_000)
             val quietNs = SystemClock.elapsedRealtimeNanos() - detector.lastActivityNs
-            if (isListening && phase == Phase.LISTENING && recorder.isRecording &&
+            if (isListening && !isDebugRecording && phase == Phase.LISTENING && recorder.isRecording &&
                 recorder.ageNs > MAX_IDLE_RECORDING_NS && quietNs > QUIET_BEFORE_RESTART_NS
             ) {
                 recorder.discard()
@@ -521,7 +623,11 @@ fun TrackerScreen(
             val limitReached = !isListening && !isPaused && recordingCount >= ShotRepository.MAX_RECORDINGS
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = if (phase == Phase.CAPTURING) GolfNeonRed.copy(alpha = 0.35f) else GolfDarkCard.copy(alpha = 0.85f)
+                    containerColor = when {
+                        phase == Phase.CAPTURING -> GolfNeonRed.copy(alpha = 0.35f)
+                        isDebugRecording -> GolfNeonGold.copy(alpha = 0.3f)
+                        else -> GolfDarkCard.copy(alpha = 0.85f)
+                    }
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -546,6 +652,10 @@ fun TrackerScreen(
                     Column {
                         Text(
                             text = when {
+                                isDebugRecording && phase == Phase.LISTENING ->
+                                    "🐞 Debug recording %d:%02d / 0:%02d • swing and hit as usual • ■ to stop".format(
+                                        debugSeconds / 60, debugSeconds % 60, DebugSessionRecorder.MAX_SECONDS
+                                    )
                                 phase == Phase.ANALYZING -> "⏳ Finding ball flight…"
                                 phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands"
                                 isPaused -> "⏸ Paused • Tap ▶ below to listen for shots"
@@ -571,7 +681,7 @@ fun TrackerScreen(
                                 if (!showingShot) "🎤 Mic $mic • 🎥 Video ${
                                     when (isVideoAvailable) { true -> "on"; false -> "not available"; null -> "starting" }
                                 } • Recordings $recordingCount/${ShotRepository.MAX_RECORDINGS}" else null,
-                                micNote, strikeNote
+                                micNote, strikeNote, debugNote
                             )
                         } else emptyList()
                         details.forEach { Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp) }
@@ -613,6 +723,8 @@ fun TrackerScreen(
                         stopListening()
                     }
                 },
+                // Stop the debug recording first: pausing would cut its video off.
+                enabled = !isDebugRecording && !isSavingDebug,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
@@ -651,8 +763,27 @@ fun TrackerScreen(
                     }
                 )
             }
+            if (isDebugRecording || isSavingDebug) {
+                Spacer(modifier = Modifier.weight(1f))
+                Button(
+                    onClick = { scope.launch { stopDebugRecording() } },
+                    enabled = isDebugRecording,
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = GolfNeonGold),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    modifier = Modifier.height(44.dp)
+                ) {
+                    if (isSavingDebug) {
+                        CircularProgressIndicator(color = GolfDarkBg, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    } else {
+                        Icon(Icons.Default.Stop, contentDescription = null, tint = GolfDarkBg, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isSavingDebug) "Saving…" else "Stop debug", color = GolfDarkBg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
 
-            if (showingShot) {
+            if (showingShot && !isDebugRecording && !isSavingDebug) {
                 Spacer(modifier = Modifier.weight(1f))
                 if (detectedPoints.isNotEmpty()) {
                     Button(
@@ -807,6 +938,25 @@ fun TrackerScreen(
                         }
                     }
 
+                    // For finding out why shots are missed: everything seen and heard, shot or not.
+                    OutlinedButton(
+                        onClick = {
+                            showSettings = false
+                            scope.launch { if (isDebugRecording) stopDebugRecording() else startDebugRecording() }
+                        },
+                        enabled = !isSavingDebug,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.BugReport, contentDescription = null, tint = GolfNeonGold, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isDebugRecording) "Stop debug recording" else "Start debug recording", color = GolfNeonGold)
+                    }
+                    Text(
+                        "Records up to ${DebugSessionRecorder.MAX_SECONDS} s of video, sound and what the shot detector sees and decides, " +
+                            "shot or not, to Downloads/GolfBallTracer. Shots aren't saved meanwhile.",
+                        color = GolfTextSecondary,
+                        fontSize = 11.sp
+                    )
                     OutlinedButton(
                         onClick = {
                             showSettings = false
