@@ -7,7 +7,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
+import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.model.isPixelTracer
+import com.golftracker.app.model.tracerRuns
 import com.golftracker.app.model.TracerStyle
 import com.golftracker.app.tracker.TrajectoryMath
 import java.io.File
@@ -72,26 +75,25 @@ object SnapshotExporter {
                 this.strokeJoin = Paint.Join.ROUND
             }
 
-            val path = Path()
-            val p0 = points.first()
-            val startX = if (p0.x <= 1.0f) p0.x * width else p0.x
-            val startY = if (p0.y <= 1.0f) p0.y * height else p0.y
-            path.moveTo(startX, startY)
-
-            for (i in 1 until points.size) {
-                val pt = points[i]
-                val px = if (pt.x <= 1.0f) pt.x * width else pt.x
-                val py = if (pt.y <= 1.0f) pt.y * height else pt.y
-                path.lineTo(px, py)
+            val pixels = isPixelTracer(points)
+            fun px(p: ScreenPoint) = if (pixels) p.x else p.x * width
+            fun py(p: ScreenPoint) = if (pixels) p.y else p.y * height
+            // Seen solid, estimated dashed.
+            val dash = DashPathEffect(floatArrayOf(width * 0.03f, width * 0.025f), 0f)
+            for ((run, estimated) in tracerRuns(points)) {
+                val path = Path()
+                path.moveTo(px(run.first()), py(run.first()))
+                run.drop(1).forEach { path.lineTo(px(it), py(it)) }
+                glowPaint.pathEffect = if (estimated) dash else null
+                corePaint.pathEffect = if (estimated) dash else null
+                canvas.drawPath(path, glowPaint)
+                canvas.drawPath(path, corePaint)
             }
-
-            canvas.drawPath(path, glowPaint)
-            canvas.drawPath(path, corePaint)
 
             // Draw impact target indicator on last point
             val lastPt = points.last()
-            val endX = if (lastPt.x <= 1.0f) lastPt.x * width else lastPt.x
-            val endY = if (lastPt.y <= 1.0f) lastPt.y * height else lastPt.y
+            val endX = px(lastPt)
+            val endY = py(lastPt)
 
             val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = tracerColor

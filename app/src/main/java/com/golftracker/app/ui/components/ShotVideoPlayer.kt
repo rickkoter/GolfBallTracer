@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -22,6 +23,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.TracerStyle
+import com.golftracker.app.model.tracerRuns
 import java.io.File
 
 /**
@@ -108,13 +110,17 @@ fun ShotVideoPlayer(
             val ox = (viewW - tw) / 2
             val oy = (viewH - th) / 2
             fun at(p: ScreenPoint) = Offset(ox + p.x * tw, oy + p.y * th)
-            val path = Path().apply {
-                moveTo(at(shown.first()).x, at(shown.first()).y)
-                shown.drop(1).forEach { lineTo(at(it).x, at(it).y) }
-            }
             val stroke = with(density) { 6f * this.density }
-            drawPath(path, Color(style.secondaryHex), style = Stroke(stroke * 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            drawPath(path, Color(style.colorHex), style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            // Seen solid, estimated dashed.
+            for ((run, estimated) in tracerRuns(shown)) {
+                val path = Path().apply {
+                    moveTo(at(run.first()).x, at(run.first()).y)
+                    run.drop(1).forEach { lineTo(at(it).x, at(it).y) }
+                }
+                val dash = if (estimated) PathEffect.dashPathEffect(floatArrayOf(stroke * 3, stroke * 2.5f)) else null
+                drawPath(path, Color(style.secondaryHex), style = Stroke(stroke * 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = dash))
+                drawPath(path, Color(style.colorHex), style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = dash))
+            }
             drawCircle(Color.White, radius = stroke * 0.8f, center = at(shown.last()))
         }
     }

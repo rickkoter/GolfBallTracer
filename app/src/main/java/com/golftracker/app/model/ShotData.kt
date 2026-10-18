@@ -78,7 +78,9 @@ data class ShotRecord(
     /** Width / height of the view the tracer points are fractions of. */
     val frameAspect: Float? = null,
     /** Where the tracer came from: [TRACED_FROM_CAMERA] (live analysis) or [TRACED_FROM_VIDEO] (the recording). */
-    val tracedFrom: String? = null
+    val tracedFrom: String? = null,
+    /** The ball was only seen leaving; most of the tracer is estimated from its launch (drawn dashed). */
+    val tracerEstimated: Boolean = false
 ) {
     val hasRecording: Boolean get() = videoPath != null || trackingPath != null
 
@@ -87,3 +89,29 @@ data class ShotRecord(
         const val TRACED_FROM_VIDEO = "video"
     }
 }
+
+/** Part of a tracer worked out rather than seen: drawn dashed. */
+val ScreenPoint.isEstimated: Boolean get() = confidence < 0.5f
+
+/**
+ * A tracer cut into stretches that were seen and stretches that were estimated, in order, as
+ * (points, estimated); each stretch starts where the one before ended, so they join up when drawn.
+ */
+fun tracerRuns(points: List<ScreenPoint>): List<Pair<List<ScreenPoint>, Boolean>> {
+    val runs = ArrayList<Pair<List<ScreenPoint>, Boolean>>()
+    var current = ArrayList<ScreenPoint>()
+    var estimated = points.firstOrNull()?.isEstimated ?: return runs
+    for (p in points) {
+        if (p.isEstimated != estimated && current.isNotEmpty()) {
+            runs += current to estimated
+            current = arrayListOf(current.last())
+            estimated = p.isEstimated
+        }
+        current += p
+    }
+    if (current.size >= 2) runs += current to estimated
+    return runs
+}
+
+/** Whether a tracer is in pixels (the demo flight) rather than fractions of the screen. */
+fun isPixelTracer(points: List<ScreenPoint>): Boolean = points.any { it.x > 5f || it.y > 5f }

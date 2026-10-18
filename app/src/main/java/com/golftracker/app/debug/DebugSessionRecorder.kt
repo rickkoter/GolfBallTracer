@@ -3,6 +3,7 @@ package com.golftracker.app.debug
 import android.content.Context
 import android.os.SystemClock
 import com.golftracker.app.export.ShotDebugExporter
+import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.LumaFrame
 import java.io.BufferedOutputStream
 import java.io.DataOutputStream
@@ -101,7 +102,7 @@ class DebugSessionRecorder(context: Context) {
      * Writes the recording to Downloads/GolfBallTracer/debug-session_*.zip with [video], if any. Slow:
      * call off the main thread. Returns where it was saved, or null.
      */
-    fun finish(video: File?, videoStartNs: Long?, micEnabled: Boolean): String? {
+    fun finish(video: File?, videoStartNs: Long?, micEnabled: Boolean, camera: LaunchPhysics.CameraPose?): String? {
         stop()
         val info = DebugSession.Info(
             device = ShotDebugExporter.device(),
@@ -114,7 +115,9 @@ class DebugSessionRecorder(context: Context) {
             audioSamples = audioSamples,
             videoStartNs = videoStartNs,
             micEnabled = micEnabled,
-            events = synchronized(events) { events.toList() }
+            events = synchronized(events) { events.toList() },
+            verticalFovRadians = camera?.verticalFovRadians,
+            deviceToWorld = camera?.deviceToWorld?.toList()
         )
         return try {
             ShotDebugExporter.writeToDownloads(appContext, "debug-session_${ShotDebugExporter.stamp()}.zip") { out ->

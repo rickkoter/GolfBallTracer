@@ -2,6 +2,7 @@ package com.golftracker.app.tracker
 
 import com.golftracker.app.model.ScreenPoint
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -45,6 +46,33 @@ object BallFlightFitter {
     private const val SEEDS_TO_TRY = 10
     private const val MAX_GAP_S = 0.5
     private const val MAX_FLIGHT_S = 10.0
+    /** For an estimated flight: how long after the strike sightings are looked for, and how many are needed. */
+    private const val SHORT_WINDOW_S = 0.35
+    private const val MIN_SHORT_SIGHTINGS = 3
+    /** How close, in ball tolerances, a sighting must be to the path: tight, as three points are few. */
+    private const val SHORT_TOLERANCE = 1.0
+    private const val MAX_FIRST_SHORT_SIGHTING_S = 0.12
+    private const val MIN_SHORT_D1 = -0.3
+    /** Screen heights from the tee. */
+    private const val MAX_FIRST_SHORT_DISTANCE = 0.3
+    /** Screen heights per second, from the tee to the last sighting. */
+    private const val MIN_SEEN_SPEED = 0.8
+    /**
+     * The launch is when the ball was seen to leave the tee, to within a frame: the frame it went from
+     * is the earliest it could have been struck.
+     */
+    private const val SHORT_LAUNCH_EARLIEST_S = -0.035
+    private const val SHORT_LAUNCH_LATEST_S = 0.01
+    /** Heard only: the sound and the camera's clock can be tens of milliseconds apart. */
+    private const val HEARD_LAUNCH_EARLIEST_S = -0.05
+    private const val HEARD_LAUNCH_LATEST_S = 0.08
+    private const val MAX_ESTIMATED_FLIGHT_S = 8.0
+    private const val GRAVITY_MPS2 = 9.81
+    private const val BALL_RADIUS_M = 0.021335
+    /** Fastest a golf ball leaves the club: a long-drive champion's 200 mph is 89 m/s. */
+    private const val MAX_BALL_SPEED_MPS = 85.0
+    /** Half the screen height over the tangent of half a typical phone camera's field of view, when it isn't known. */
+    private const val TYPICAL_FOCAL = 0.75
 
     private class Obs(val t: Double, val x: Double, val y: Double, val ns: Long)
 
@@ -92,11 +120,22 @@ object BallFlightFitter {
         val tracer: List<ScreenPoint>,
         val launch: ScreenLaunch,
         val trackedFrames: Int = 0,
-        val trackedSeconds: Double = 0.0
+        val trackedSeconds: Double = 0.0,
+        /** The ball was only seen briefly; most of the tracer is worked out from its launch (see [fitEstimatedFlight]). */
+        val estimated: Boolean = false,
+        /** For an estimated flight, where the ball was actually seen. */
+        val sightings: List<ScreenPoint> = emptyList()
     )
 
     /** Returns the tracer from the tee along the ball's flight, or an empty list if no ball flight was found. */
     fun fit(shot: CapturedShot): List<ScreenPoint> = fitFlight(shot)?.tracer ?: emptyList()
+
+    /**
+     * The flight if the ball could be followed; otherwise, for a shot whose strike was heard (so it's
+     * surely a shot), the flight estimated from its first moments.
+     */
+    fun fitBest(shot: CapturedShot, camera: LaunchPhysics.CameraPose?): Flight? =
+        fitFlight(shot) ?: if (shot.heardImpact) fitEstimatedFlight(shot, camera) else null
 
     /** The ball's flight, or null if none was found. */
     fun fitFlight(shot: CapturedShot): Flight? {
@@ -137,6 +176,133 @@ object BallFlightFitter {
             )
         }
         return null
+    }
+
+    /**
+     * For a shot whose flight couldn't be followed far enough for [fitFlight], typically a ball a pixel
+     * or two across that's lost against trees or sky after a fraction of a second: the launch from the
+     * few sightings of the ball leaving the tee, and the rest of the flight estimated from it.
+     *
+     * Over that short time the launch is fitted with the screen-space path of [fitFlight] with the
+     * gravity term fixed: the ball's size on the tee says how far away it is, so how fast gravity pulls
+     * it down the screen (g × radius on screen / real radius, in screen heights per s²). From the launch,
+     * [LaunchPhysics.projectFlight] flies the ball with drag and lift and draws it from the [camera]; without
+     * the camera's pose the arc is drawn without drag. Points past the last sighting are marked estimated.
+     */
+    fun fitEstimatedFlight(shot: CapturedShot, camera: LaunchPhysics.CameraPose?): Flight? {
+        val radius = shot.ballRadius ?: return null
+        val launchNs = shot.launchTimestampNs ?: return null
+        val aspect = shot.aspect.toDouble()
+        val teeX = shot.teeX * aspect
+        val teeY = shot.teeY.toDouble()
+        val tol = (radius * 1.5).coerceIn(0.012, 0.04)
+        val obs = shot.candidates
+            .filter { it.timestampNs > launchNs && it.timestampNs <= launchNs + (SHORT_WINDOW_S * 1e9).toLong() }
+            .map { Obs((it.timestampNs - launchNs) / 1e9, it.x * aspect, it.y.toDouble(), it.timestampNs) }
+            .filter { dist(it.x, it.y, teeX, teeY) > 2 * tol }
+            // Not where the golfer moved: the arms and club swinging through to the finish make paths too.
+            .filter { o -> shot.changedArea?.let { m -> m.lum(((o.x / aspect) * m.width).toInt().coerceIn(0, m.width - 1), (o.y * m.height).toInt().coerceIn(0, m.height - 1)) == 0 } ?: true }
+        if (obs.size < MIN_SHORT_SIGHTINGS) return null
+        val b2 = 0.5 * GRAVITY_MPS2 * radius / BALL_RADIUS_M
+        // How far the ball was, in metres, to keep the launch to speeds a golf ball can have.
+        val focal = camera?.let { 0.5 / kotlin.math.tan(it.verticalFovRadians / 2) } ?: TYPICAL_FOCAL
+        val distanceM = focal * BALL_RADIUS_M / radius
+
+        class Fit(val t0: Double, val a1: Double, val b1: Double, val d1: Double, val inliers: List<Obs>, val err: Double) {
+            fun x(t: Double): Double { val tau = t - t0; return (teeX + a1 * tau) / (1 + d1 * tau) }
+            fun y(t: Double): Double { val tau = t - t0; return (teeY + b1 * tau + b2 * tau * tau) / (1 + d1 * tau) }
+        }
+        fun solve(t0: Double, points: List<Obs>): Fit? {
+            val rows = ArrayList<DoubleArray>()
+            val rhs = ArrayList<Double>()
+            for (p in points) {
+                val tau = p.t - t0
+                if (tau <= 1e-3) return null
+                rows += doubleArrayOf(1.0, 0.0, -p.x); rhs += (p.x - teeX) / tau
+                rows += doubleArrayOf(0.0, 1.0, -p.y); rhs += (p.y - teeY - b2 * tau * tau) / tau
+            }
+            val c = leastSquares(rows, rhs) ?: return null
+            return Fit(t0, c[0], c[1], c[2], emptyList(), 0.0)
+        }
+        fun plausible(f: Fit): Boolean {
+            val vx = f.a1 - teeX * f.d1
+            val vy = f.b1 - teeY * f.d1
+            val across = hypot(vx, vy) * distanceM / focal
+            val away = f.d1 * distanceM
+            // Going up and away: nobody films a golf shot from where the ball is going.
+            return vy < 0 && hypot(vx, vy) >= MIN_LAUNCH_SPEED && f.d1 in MIN_SHORT_D1..60.0 && 1 + f.d1 * SHORT_WINDOW_S > 0.05 &&
+                hypot(across, away) <= MAX_BALL_SPEED_MPS
+        }
+        // The best sighting per frame on the path, if close enough; each must be farther from the tee than the last.
+        fun inliers(f: Fit): List<Obs> {
+            val chosen = obs.groupBy { it.ns }.values.mapNotNull { frame ->
+                frame.minByOrNull { dist(it.x, it.y, f.x(it.t), f.y(it.t)) }?.takeIf { dist(it.x, it.y, f.x(it.t), f.y(it.t)) < SHORT_TOLERANCE * tol }
+            }.sortedBy { it.t }
+            val out = ArrayList<Obs>()
+            for (o in chosen) if (out.isEmpty() || dist(o.x, o.y, teeX, teeY) > dist(out.last().x, out.last().y, teeX, teeY)) out += o
+            return out
+        }
+
+        // The sound of the strike and the camera's frames can be tens of milliseconds apart, so the launch
+        // time is searched around the one given; every pair of sightings proposes a path, and the one seen in
+        // the most frames, fitting them best, wins.
+        var best: Fit? = null
+        val (earliest, latest) = if (shot.launchSeen) SHORT_LAUNCH_EARLIEST_S to SHORT_LAUNCH_LATEST_S
+            else HEARD_LAUNCH_EARLIEST_S to HEARD_LAUNCH_LATEST_S
+        var t0 = earliest
+        while (t0 <= latest + 1e-9) {
+            for (i in obs.indices) for (j in i + 1 until obs.size) {
+                if (obs[j].ns == obs[i].ns) continue
+                val proposal = solve(t0, listOf(obs[i], obs[j]))?.takeIf { plausible(it) } ?: continue
+                val pts = inliers(proposal)
+                if (pts.size < MIN_SHORT_SIGHTINGS) continue
+                // Seen soon after it left, and getting away fast: spots that happen to line up drift slowly.
+                if (pts.first().t - t0 > MAX_FIRST_SHORT_SIGHTING_S) continue
+                if (pts.first().let { dist(it.x, it.y, teeX, teeY) } > MAX_FIRST_SHORT_DISTANCE) continue
+                if (pts.last().let { dist(it.x, it.y, teeX, teeY) / (it.t - t0) } < MIN_SEEN_SPEED) continue
+                val refit = solve(t0, pts)?.takeIf { plausible(it) } ?: continue
+                val err = pts.sumOf { dist(it.x, it.y, refit.x(it.t), refit.y(it.t)).let { d -> d * d } } / pts.size
+                val fit = Fit(t0, refit.a1, refit.b1, refit.d1, pts, err)
+                val b = best
+                if (b == null || pts.size > b.inliers.size || (pts.size == b.inliers.size && err < b.err)) best = fit
+            }
+            t0 += 0.01
+        }
+        val fit = best ?: return null
+        val launch = ScreenLaunch(teeX, teeY, fit.a1 - teeX * fit.d1, fit.b1 - teeY * fit.d1, fit.d1, aspect)
+        val startNs = launchNs + (fit.t0 * 1e9).toLong()
+        val seenUntilNs = fit.inliers.last().ns
+        // With the camera's pose the launch can be checked as a real one (see projectFlight); without, drawn on screen.
+        val tracer = if (camera != null) LaunchPhysics.projectFlight(launch, radius, camera, startNs, seenUntilNs)
+            else screenArc(fit.a1, fit.b1, b2, fit.d1, teeX, teeY, aspect, startNs, seenUntilNs)
+        if (tracer.size < 2) return null
+        val sightings = fit.inliers.map { ScreenPoint((it.x / aspect).toFloat(), it.y.toFloat(), it.ns / 1_000_000L) }
+        return Flight(tracer, launch, fit.inliers.size, fit.inliers.last().t - fit.t0, estimated = true, sightings = sightings)
+    }
+
+    /**
+     * Without the camera's pose: the fitted screen path carried on, without drag, until the ball is back
+     * at the ground (taking the horizon as level with the middle of the screen).
+     */
+    private fun screenArc(
+        a1: Double, b1: Double, b2: Double, d1: Double, x0: Double, y0: Double, aspect: Double, startNs: Long, seenUntilNs: Long
+    ): List<ScreenPoint> {
+        val horizon = 0.5
+        val land = (-(b1 - horizon * d1) / b2).coerceAtMost(MAX_ESTIMATED_FLIGHT_S)
+        if (land <= 0) return emptyList()
+        val out = ArrayList<ScreenPoint>()
+        var tau = 0.0
+        while (tau <= land) {
+            val den = 1 + d1 * tau
+            if (den < 0.05) break
+            val ns = startNs + (tau * 1e9).toLong()
+            out += ScreenPoint(
+                ((x0 + a1 * tau) / den / aspect).toFloat(), ((y0 + b1 * tau + b2 * tau * tau) / den).toFloat(), ns / 1_000_000L,
+                if (ns <= seenUntilNs) 0.95f else LaunchPhysics.ESTIMATED_CONFIDENCE
+            )
+            tau += 1.0 / 60
+        }
+        return out
     }
 
     private fun toTracer(seed: Seed, track: List<Obs>, teeX: Double, teeY: Double, t0Ns: Long, aspect: Double): List<ScreenPoint> {

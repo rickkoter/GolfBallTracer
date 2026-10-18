@@ -21,7 +21,14 @@ internal object ImpactBallLocator {
      * The ball, in the coordinates of frame [referenceIndex] (where a capture should start feeding
      * frames), and when it was seen to go.
      */
-    class Found(val ball: TeeBall, val referenceIndex: Int, val vanishedNs: Long, val contrast: Float)
+    class Found(
+        val ball: TeeBall, val referenceIndex: Int, val vanishedNs: Long, val contrast: Float,
+        /**
+         * Where the picture changed between before and after the swing (255) or not (0): the golfer, now in
+         * another pose. A ball in flight crosses what stayed the same.
+         */
+        val changed: LumaFrame? = null
+    )
 
     private const val BEFORE_FROM_S = 0.9
     private const val BEFORE_TO_S = 0.2
@@ -53,6 +60,7 @@ internal object ImpactBallLocator {
     private const val STRONG = 0.5f
     /** Largest ball radius, as a fraction of the frame's long side. */
     private const val MAX_RADIUS = 0.035f
+    private const val CHANGED_GROWTH = 4
 
     /**
      * [frames] in time order; [impactNs] on the same clock. With [heardNs], when the strike was heard,
@@ -123,13 +131,21 @@ internal object ImpactBallLocator {
             if (heardNs != null && vanishedNs - heardNs !in -MAX_VANISH_BEFORE_STRIKE_NS..MAX_VANISH_AFTER_STRIKE_NS) continue
             candidates += Candidate(Found(ball, referenceIndex, vanishedNs, circle.contrast), score)
         }
+        val changedMask = changedArea(medBefore, medAfter, w, h, ref.timestampNs)
         // The ball leaves the instant it's struck. A shoe that turns or a heel that lifts in the follow-through
         // changes a little later, so of the strong candidates, only those that went first are considered.
         val top = candidates.maxOfOrNull { it.score } ?: return null
         val strong = candidates.filter { it.score >= STRONG * top }
         val first = strong.minOf { it.found.vanishedNs }
         val frameNs = (after.last().timestampNs - before.last().timestampNs) / max(1, transition.size)
-        return strong.filter { it.found.vanishedNs <= first + frameNs }.maxBy { it.score }.found
+        val chosen = strong.filter { it.found.vanishedNs <= first + frameNs }.maxBy { it.score }.found
+        return Found(chosen.ball, chosen.referenceIndex, chosen.vanishedNs, chosen.contrast, changedMask)
+    }
+
+    /** What changed between before and after, grown by a few pixels to cover a club or arm a little out of place. */
+    private fun changedArea(before: IntArray, after: IntArray, w: Int, h: Int, timestampNs: Long): LumaFrame {
+        val changed = SummedArea(IntArray(w * h) { if (abs(before[it] - after[it]) >= MIN_DROP) 1 else 0 }, w, h)
+        return LumaFrame(w, h, ByteArray(w * h) { i -> if (changed.mean(i % w, i / w, CHANGED_GROWTH) > 0.1f) -1 else 0 }, timestampNs)
     }
 
     /**

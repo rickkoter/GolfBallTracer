@@ -49,6 +49,7 @@ class ShotTrigger(
         val impactNs: Long,
         val heard: Boolean,
         val endNs: Long,
+        val changed: LumaFrame?,
         val thumbs: ArrayList<LumaFrame> = ArrayList()
     )
 
@@ -150,7 +151,7 @@ class ShotTrigger(
         val (sx, sy) = FrameShift.estimate(ref, latest)
         val session = ShotCaptureSession(keepFrames = keepFrames)
         session.arm(found.ball.x, found.ball.y, found.ball, launchHintNs = if (heard) impactNs else found.vanishedNs)
-        val c = Capture(session, impactNs, heard, impactNs + secondsNs(captureSeconds))
+        val c = Capture(session, impactNs, heard, impactNs + secondsNs(captureSeconds), found.changed)
         capture = c
         buffer.clear()
         sounds.clear()
@@ -169,7 +170,7 @@ class ShotTrigger(
         capture = null
         listening = false
         wantsFrames = false
-        val shot = c.session.stop().copy(impactTimestampNs = c.impactNs, heardImpact = c.heard, thumbnails = c.thumbs)
+        val shot = c.session.stop().copy(impactTimestampNs = c.impactNs, heardImpact = c.heard, thumbnails = c.thumbs, changedArea = c.changed)
         onEvent(Event.Captured(shot))
     }
 

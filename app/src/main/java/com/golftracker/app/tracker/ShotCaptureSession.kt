@@ -53,7 +53,11 @@ data class CapturedShot(
     /** Whether the impact was heard, rather than only seen. */
     val heardImpact: Boolean = false,
     /** Tiny copies of every frame, to line the recording's video up with what was analyzed live. */
-    val thumbnails: List<LumaFrame> = emptyList()
+    val thumbnails: List<LumaFrame> = emptyList(),
+    /** Where the golfer moved between before and after the swing (non-zero), in the first frame's coordinates. */
+    val changedArea: LumaFrame? = null,
+    /** Whether [launchTimestampNs] is when the ball was seen to go (to a frame), rather than when the strike was heard. */
+    val launchSeen: Boolean = true
 )
 
 /**
@@ -197,6 +201,7 @@ class ShotCaptureSession(
             teeY = teeY,
             ballRadius = ballRadiusCells?.let { it / gridHeight },
             launchTimestampNs = launchTime(),
+            launchSeen = launchTime().let { it != null && it == launch.launchTimestampNs },
             aspect = aspect,
             tapX = tapX,
             tapY = tapY,

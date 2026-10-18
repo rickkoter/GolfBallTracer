@@ -12,6 +12,7 @@ import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.CapturedShot
+import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.ShotDebugArchive
 import com.golftracker.app.video.ShotVideoRecorder
@@ -58,7 +59,9 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         val liveFlight: BallFlightFitter.Flight?,
         val clip: ShotVideoRecorder.Clip?,
         val still: Bitmap?,
-        val stillShift: Pair<Float, Float>
+        val stillShift: Pair<Float, Float>,
+        /** The camera's pose while filming, for estimating a flight seen only briefly. */
+        val camera: LaunchPhysics.CameraPose?
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -88,7 +91,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
             e.printStackTrace()
         }
         val trackingFile = File(dir, ShotBundle.TRACKING)
-        var tracking = ShotTracking.of(shot, liveTracer, new.liveFlight?.trackedSeconds).copy(videoStartNs = videoStartNs)
+        var tracking = ShotTracking.of(shot, new.liveFlight).copy(videoStartNs = videoStartNs)
         ShotTracking.write(tracking, trackingFile)
 
         // 2. Into the history straight away.
@@ -107,6 +110,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         // 3. Trace again from the video.
         var points = new.record.points
         var tracedFrom = ShotRecord.TRACED_FROM_CAMERA
+        var estimated = new.liveFlight?.estimated ?: false
         var startNs = videoStartNs
         val note: String
         var usedFlight: BallFlightFitter.Flight? = null
@@ -115,7 +119,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         } else {
             val result = retraceLock.withLock {
                 try {
-                    VideoRetracer.retrace(video, videoStartNs, shot)
+                    VideoRetracer.retrace(video, videoStartNs, shot, new.camera)
                 } catch (e: Exception) {
                     e.printStackTrace()
                     null
@@ -129,6 +133,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
                 usedFlight = videoFlight
                 points = videoFlight.tracer.map { it.copy(x = it.x + dx, y = it.y + dy) }
                 tracedFrom = ShotRecord.TRACED_FROM_VIDEO
+                estimated = videoFlight.estimated
             }
             note = when {
                 result == null -> "Couldn't trace the video"
@@ -140,6 +145,8 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
                 videoFrameRate = result?.frameRate,
                 tracedFrom = tracedFrom,
                 videoTracer = result?.flight?.tracer,
+                videoEstimated = result?.flight?.estimated ?: false,
+                videoSightings = result?.flight?.sightings ?: emptyList(),
                 videoTrackedSeconds = result?.flight?.trackedSeconds,
                 videoNote = result?.note
             )
@@ -149,12 +156,13 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         // 4. Bake the snapshot with the final tracer, unless the curve was tuned by hand meanwhile.
         val current = repository.find(id) ?: return
         val edited = current.points != new.record.points
-        val final = if (edited) current else current.copy(points = points, tracedFrom = tracedFrom)
+        val final = if (edited) current else current.copy(points = points, tracedFrom = tracedFrom, tracerEstimated = estimated)
         val snapshot = new.still?.let { SnapshotExporter.createAnnotatedSnapshot(context, it, final) }
         val saved = repository.update(id) {
             it.copy(
                 points = final.points,
                 tracedFrom = final.tracedFrom,
+                tracerEstimated = final.tracerEstimated,
                 videoStartMs = startNs?.let { ns -> ns / 1_000_000L },
                 snapshotUri = snapshot?.toString() ?: it.snapshotUri
             )
@@ -219,6 +227,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
                 videoStartMs = current.videoStartMs,
                 frameAspect = current.frameAspect,
                 tracedFrom = current.tracedFrom,
+                tracerEstimated = current.tracerEstimated,
                 snapshotUri = current.snapshotUri
             )
         } ?: return edited

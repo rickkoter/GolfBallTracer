@@ -3,6 +3,7 @@ package com.golftracker.app.video
 import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.CapturedShot
 import com.golftracker.app.tracker.ImpactBallLocator
+import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.ShotCaptureSession
 import com.golftracker.app.tracker.TeeBall
@@ -36,15 +37,19 @@ object VideoRetracer {
     private const val ALIGN_AFTER_S = 1.5
     private const val ALIGN_SEARCH_S = 1.0
 
-    /** Whether the video's trace is better than the live one: it followed the ball at least as far. */
+    /**
+     * Whether the video's trace is better than the live one: a followed flight beats an estimated one,
+     * and otherwise it saw the ball at least as long.
+     */
     fun isBetter(live: BallFlightFitter.Flight?, video: BallFlightFitter.Flight?): Boolean = when {
         video == null -> false
         live == null -> true
+        live.estimated != video.estimated -> live.estimated
         else -> video.trackedSeconds >= live.trackedSeconds - 0.05
     }
 
     /** [startGuessNs] is roughly when the video's first frame was taken on the live clock, if known. */
-    fun retrace(file: File, startGuessNs: Long?, live: CapturedShot): Result {
+    fun retrace(file: File, startGuessNs: Long?, live: CapturedShot, camera: LaunchPhysics.CameraPose?): Result {
         val impact = live.impactTimestampNs ?: return Result(null, null, null, null, "no impact time")
         val thumbs = live.thumbnails
         if (thumbs.size < 3) return Result(null, null, null, null, "no live frames to line up with")
@@ -100,8 +105,12 @@ object VideoRetracer {
         }
         val shot = session?.stop()?.copy(impactTimestampNs = impact, heardImpact = live.heardImpact)
             ?: return Result(null, null, offset, fps, "no video frames around the shot")
-        val flight = BallFlightFitter.fitFlight(shot)
-        val note = "%.0f fps video, %s".format(fps ?: 0.0, if (flight == null) "no flight found" else "followed %.1f s".format(flight.trackedSeconds))
+        val flight = BallFlightFitter.fitBest(shot.copy(changedArea = live.changedArea), camera)
+        val note = "%.0f fps video, %s".format(fps ?: 0.0, when {
+            flight == null -> "no flight found"
+            flight.estimated -> "ball seen %.2f s, rest estimated".format(flight.trackedSeconds)
+            else -> "followed %.1f s".format(flight.trackedSeconds)
+        })
         return Result(shot, flight, offset, fps, note)
     }
 

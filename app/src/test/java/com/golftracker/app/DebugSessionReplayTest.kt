@@ -2,6 +2,7 @@ package com.golftracker.app
 
 import com.golftracker.app.debug.DebugSession
 import com.golftracker.app.tracker.BallFlightFitter
+import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.OnsetDetector
 import com.golftracker.app.tracker.ShotTrigger
@@ -136,8 +137,13 @@ class DebugSessionReplayTest {
             for (e in events) when (e) {
                 is ShotTrigger.Event.Started -> println("    ${at(e.impactNs)}  shot started: ball at (%.3f, %.3f), %s".format(e.ball.x, e.ball.y, if (e.heard) "heard" else "seen only"))
                 is ShotTrigger.Event.Captured -> {
-                    val flight = BallFlightFitter.fitFlight(e.shot)
-                    println("    ${at(e.shot.impactTimestampNs ?: lastFrameNs)}  captured: ${flight?.let { "ball followed %.2f s".format(it.trackedSeconds) } ?: "no ball flight found"}")
+                    val pose = info.verticalFovRadians?.let { fov -> info.deviceToWorld?.let { LaunchPhysics.CameraPose(fov, it.toFloatArray()) } }
+                    val flight = BallFlightFitter.fitBest(e.shot, pose)
+                    println("    ${at(e.shot.impactTimestampNs ?: lastFrameNs)}  captured: ${when {
+                        flight == null -> "no ball flight found"
+                        flight.estimated -> "ball seen %.2f s in %d frames, rest estimated".format(flight.trackedSeconds, flight.trackedFrames)
+                        else -> "ball followed %.2f s".format(flight.trackedSeconds)
+                    }}")
                 }
                 is ShotTrigger.Event.Missed -> println("    ${at(e.impactNs)}  strike heard, no ball seen leaving${if (e.duringSwing) " (during a swing)" else ""}")
             }

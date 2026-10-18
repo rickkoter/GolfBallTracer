@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.CapturedShot
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -43,13 +44,18 @@ data class ShotTracking(
     val videoTracer: List<ScreenPoint>? = null,
     val videoTrackedSeconds: Double? = null,
     val videoNote: String? = null,
+    /** Whether each tracer is mostly estimated from a brief sighting, and where the ball was actually seen. */
+    val liveEstimated: Boolean = false,
+    val liveSightings: List<ScreenPoint> = emptyList(),
+    val videoEstimated: Boolean = false,
+    val videoSightings: List<ScreenPoint> = emptyList(),
     /** Spots the live detector saw, as [x, y, score, ms since impact]. */
     val liveCandidates: List<List<Float>> = emptyList()
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
-        fun of(shot: CapturedShot, liveTracer: List<ScreenPoint>, liveTrackedSeconds: Double?) = ShotTracking(
+        fun of(shot: CapturedShot, live: BallFlightFitter.Flight?) = ShotTracking(
             teeX = shot.teeX,
             teeY = shot.teeY,
             ballRadius = shot.ballRadius,
@@ -58,8 +64,10 @@ data class ShotTracking(
             heardImpact = shot.heardImpact,
             launchTimestampNs = shot.launchTimestampNs,
             tracedFrom = ShotRecord.TRACED_FROM_CAMERA,
-            liveTracer = liveTracer,
-            liveTrackedSeconds = liveTrackedSeconds,
+            liveTracer = live?.tracer ?: emptyList(),
+            liveTrackedSeconds = live?.trackedSeconds,
+            liveEstimated = live?.estimated ?: false,
+            liveSightings = live?.sightings ?: emptyList(),
             liveCandidates = shot.candidates.map {
                 listOf(it.x, it.y, it.score, ((it.timestampNs - (shot.impactTimestampNs ?: 0L)) / 1e6).toFloat())
             }

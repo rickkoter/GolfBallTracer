@@ -13,6 +13,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.TracerStyle
+import com.golftracker.app.model.isPixelTracer
+import com.golftracker.app.model.tracerRuns
 import com.golftracker.app.tracker.TrajectoryMath
 import kotlin.math.sin
 
@@ -143,41 +145,31 @@ fun BallTracerCanvas(
         val activePoints = points
 
         if (activePoints.size >= 2) {
-            val path = Path()
-            val start = activePoints.first()
-            val startX = if (start.x <= 1.0f) start.x * width else start.x
-            val startY = if (start.y <= 1.0f) start.y * height else start.y
+            val pixels = isPixelTracer(activePoints)
+            fun at(pt: ScreenPoint) = if (pixels) Offset(pt.x, pt.y) else Offset(pt.x * width, pt.y * height)
+            val startX = at(activePoints.first()).x
+            val startY = at(activePoints.first()).y
 
-            path.moveTo(startX, startY)
-
-            for (i in 1 until activePoints.size) {
-                val pt = activePoints[i]
-                val px = if (pt.x <= 1.0f) pt.x * width else pt.x
-                val py = if (pt.y <= 1.0f) pt.y * height else pt.y
-                path.lineTo(px, py)
+            // Where the ball was seen is drawn solid; where its flight was estimated, dashed.
+            for ((run, estimated) in tracerRuns(activePoints)) {
+                val path = Path().apply {
+                    moveTo(at(run.first()).x, at(run.first()).y)
+                    run.drop(1).forEach { lineTo(at(it).x, at(it).y) }
+                }
+                val dash = if (estimated) PathEffect.dashPathEffect(floatArrayOf(width * 0.03f, width * 0.025f)) else null
+                // Outer neon glow
+                drawPath(
+                    path = path,
+                    color = glowColor,
+                    style = Stroke(width = width * 0.024f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = dash)
+                )
+                // Inner core line
+                drawPath(
+                    path = path,
+                    color = coreColor,
+                    style = Stroke(width = width * 0.010f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = dash)
+                )
             }
-
-            // Outer neon glow
-            drawPath(
-                path = path,
-                color = glowColor,
-                style = Stroke(
-                    width = width * 0.024f,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round
-                )
-            )
-
-            // Inner core line
-            drawPath(
-                path = path,
-                color = coreColor,
-                style = Stroke(
-                    width = width * 0.010f,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round
-                )
-            )
 
             // Particle sparks along curve
             val sparkCount = 8
@@ -185,8 +177,8 @@ fun BallTracerCanvas(
                 val fraction = (k + 1) / (sparkCount + 1f)
                 val index = (fraction * (activePoints.size - 1)).toInt()
                 val pt = activePoints[index]
-                val px = if (pt.x <= 1.0f) pt.x * width else pt.x
-                val py = if (pt.y <= 1.0f) pt.y * height else pt.y
+                val px = at(pt).x
+                val py = at(pt).y
 
                 val sparkRadius = (width * 0.008f) * (1f + 0.3f * sin(k * 2.0)).toFloat()
                 drawCircle(
@@ -209,9 +201,8 @@ fun BallTracerCanvas(
             )
 
             // Landing Target Pin Marker
-            val endPt = activePoints.last()
-            val endX = if (endPt.x <= 1.0f) endPt.x * width else endPt.x
-            val endY = if (endPt.y <= 1.0f) endPt.y * height else endPt.y
+            val endX = at(activePoints.last()).x
+            val endY = at(activePoints.last()).y
 
             drawCircle(
                 color = glowColor,

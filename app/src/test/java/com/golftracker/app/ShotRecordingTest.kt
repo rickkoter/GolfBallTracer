@@ -131,6 +131,10 @@ class ShotRecordingTest {
         assertTrue(VideoRetracer.isBetter(flight(1.0), flight(0.98)))
         assertFalse(VideoRetracer.isBetter(flight(1.6), flight(1.0)))
         assertFalse(VideoRetracer.isBetter(flight(1.0), null))
+        // A flight followed beats one estimated from a glimpse, however long the glimpse.
+        val estimated = BallFlightFitter.Flight(emptyList(), launch, 4, 0.3, estimated = true)
+        assertTrue(VideoRetracer.isBetter(estimated, flight(0.2)))
+        assertFalse(VideoRetracer.isBetter(flight(0.2), estimated))
     }
 
     // --- Keeping recordings ---
@@ -161,7 +165,10 @@ class ShotRecordingTest {
         )
         val tracer = listOf(ScreenPoint(0.5f, 0.8f, 1L), ScreenPoint(0.5f, 0.6f, 2L))
         File(dir, ShotBundle.CAPTURE).outputStream().use { ShotDebugArchive.write(shot, tracer, "test", it) }
-        ShotTracking.write(ShotTracking.of(shot, tracer, 1.2), File(dir, ShotBundle.TRACKING))
+        ShotTracking.write(
+            ShotTracking.of(shot, BallFlightFitter.Flight(tracer, BallFlightFitter.ScreenLaunch(0.27, 0.8, 0.0, -1.0, 0.0, 0.45), 2, 1.2)),
+            File(dir, ShotBundle.TRACKING)
+        )
         val video = ByteArray(5000) { it.toByte() }
         File(dir, ShotBundle.VIDEO).writeBytes(video)
         val record = ShotRecord(id = "abc", trackingPath = File(dir, ShotBundle.TRACKING).path)

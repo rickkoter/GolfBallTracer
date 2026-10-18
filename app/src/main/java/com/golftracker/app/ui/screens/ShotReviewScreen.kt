@@ -153,9 +153,9 @@ fun ShotReviewScreen(
                 ) {
                     Text(
                         when (shotRecord.tracedFrom) {
-                            ShotRecord.TRACED_FROM_VIDEO -> "Tracer from the full video • tap video to pause"
-                            else -> "Tracer from live camera • tap video to pause"
-                        },
+                            ShotRecord.TRACED_FROM_VIDEO -> "Tracer from the full video"
+                            else -> "Tracer from live camera"
+                        } + (if (shotRecord.tracerEstimated) " • dashed part estimated" else "") + " • tap video to pause",
                         color = GolfTextSecondary,
                         fontSize = 12.sp
                     )

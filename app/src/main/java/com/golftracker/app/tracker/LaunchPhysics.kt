@@ -1,6 +1,7 @@
 package com.golftracker.app.tracker
 
 import com.golftracker.app.model.GpsCoordinate
+import com.golftracker.app.model.ScreenPoint
 import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -37,6 +38,105 @@ object LaunchPhysics {
     private const val LANDING_SPEED_KEPT = 0.5
     private const val EARTH_RADIUS_M = 6_371_000.0
 
+    /** The phone's camera while filming: its field of view across the screen's height and which way it faced. */
+    class CameraPose(
+        val verticalFovRadians: Double,
+        /** 3×3 row-major rotation from phone axes to east/north/up. */
+        val deviceToWorld: FloatArray
+    )
+
+    /** The launch in metres and m/s: the tee relative to the phone, and the ball's velocity, both east/north/up. */
+    private class WorldLaunch(val tee: DoubleArray, val velocity: DoubleArray, val focal: Double)
+
+    private fun worldLaunch(
+        launch: BallFlightFitter.ScreenLaunch, ballRadius: Float, verticalFovRadians: Double, deviceToWorld: FloatArray
+    ): WorldLaunch? {
+        if (ballRadius <= 0f || verticalFovRadians <= 0.0) return null
+        // Camera: x right, y down, z out of the lens; positions on screen relative to its center.
+        val focal = 0.5 / tan(verticalFovRadians / 2)
+        val u = (launch.x - launch.aspect / 2) / focal
+        val v = (launch.y - 0.5) / focal
+        val depth = focal * BALL_RADIUS_M / ballRadius
+        val vz = launch.d1 * depth
+        val vx = depth * launch.vx / focal + u * vz
+        val vy = depth * launch.vy / focal + v * vz
+        // Phone axes (x right, y up the screen, z out of the screen) for the back camera, then world.
+        return WorldLaunch(
+            tee = toWorld(deviceToWorld, u * depth, -v * depth, -depth),
+            velocity = toWorld(deviceToWorld, vx, -vy, -vz),
+            focal = focal
+        )
+    }
+
+    /**
+     * The whole flight as the camera would have seen it, from how the ball left the tee: the launch is
+     * turned into metres and m/s, flown with drag and backspin lift like [fly], and each moment put back
+     * on screen. Points up to [seenUntilNs], where the ball was actually seen, are marked confident; the
+     * rest are an estimate (confidence below 0.5). Empty if the launch doesn't look like a golf shot.
+     */
+    fun projectFlight(
+        launch: BallFlightFitter.ScreenLaunch,
+        ballRadius: Float,
+        camera: CameraPose,
+        launchNs: Long,
+        seenUntilNs: Long
+    ): List<ScreenPoint> {
+        val world = worldLaunch(launch, ballRadius, camera.verticalFovRadians, camera.deviceToWorld) ?: return emptyList()
+        val vel = world.velocity
+        val horizontal = hypot(vel[0], vel[1])
+        // A real shot: faster than a gentle chip, slower than the longest drives, and going up but not straight up.
+        if (hypot(horizontal, vel[2]) !in MIN_SHOT_SPEED_MPS..95.0 || vel[2] <= 0) return emptyList()
+        if (Math.toDegrees(kotlin.math.atan2(vel[2], horizontal)) !in MIN_LAUNCH_ANGLE_DEG..MAX_LAUNCH_ANGLE_DEG) return emptyList()
+        val dirE = if (horizontal > 1e-6) vel[0] / horizontal else 0.0
+        val dirN = if (horizontal > 1e-6) vel[1] / horizontal else 0.0
+        val r = camera.deviceToWorld
+        val k = 0.5 * AIR_DENSITY * PI * BALL_RADIUS_M * BALL_RADIUS_M / BALL_MASS_KG
+        var vx = horizontal
+        var vy = vel[2]
+        var x = 0.0
+        var y = 0.0
+        var t = 0.0
+        val dt = 0.002
+        var nextPoint = 0.0
+        val out = ArrayList<ScreenPoint>()
+        while (t < 15.0) {
+            if (t >= nextPoint) {
+                nextPoint += POINT_INTERVAL_S
+                // World point back to the phone's axes (the rotation's transpose), then onto the screen.
+                val e = world.tee[0] + x * dirE
+                val n = world.tee[1] + x * dirN
+                val u = world.tee[2] + y
+                val px = r[0] * e + r[3] * n + r[6] * u
+                val py = r[1] * e + r[4] * n + r[7] * u
+                val pz = r[2] * e + r[5] * n + r[8] * u
+                val depth = -pz
+                if (depth < 0.3) break
+                val sx = (launch.aspect / 2 + world.focal * px / depth) / launch.aspect
+                val sy = 0.5 + world.focal * -py / depth
+                if (sx !in -2.0..3.0 || sy !in -2.0..3.0) break
+                val ns = launchNs + (t * 1e9).toLong()
+                out += ScreenPoint(sx.toFloat(), sy.toFloat(), ns / 1_000_000L, if (ns <= seenUntilNs) 0.95f else ESTIMATED_CONFIDENCE)
+            }
+            val s = hypot(vx, vy)
+            val ax = -k * DRAG_COEFFICIENT * s * vx - k * LIFT_COEFFICIENT * s * vy
+            val ay = -GRAVITY - k * DRAG_COEFFICIENT * s * vy + k * LIFT_COEFFICIENT * s * vx
+            vx += ax * dt
+            vy += ay * dt
+            x += vx * dt
+            y += vy * dt
+            t += dt
+            if (y < 0 && vy < 0) break
+        }
+        return out
+    }
+
+    /** Confidence given to the estimated part of a tracer, which is drawn dashed. */
+    const val ESTIMATED_CONFIDENCE = 0.4f
+    private const val POINT_INTERVAL_S = 1.0 / 60
+    private const val MIN_SHOT_SPEED_MPS = 8.0
+    private const val MIN_LAUNCH_ANGLE_DEG = 3.0
+    private const val MAX_LAUNCH_ANGLE_DEG = 65.0
+
     data class Landing(
         val position: GpsCoordinate,
         /** Compass bearing from the tee, degrees from true north. */
@@ -63,20 +163,9 @@ object LaunchPhysics {
         declinationDegrees: Double,
         phone: GpsCoordinate
     ): Landing? {
-        if (ballRadius <= 0f || verticalFovRadians <= 0.0) return null
-
-        // Camera: x right, y down, z out of the lens; positions on screen relative to its center.
-        val focal = 0.5 / tan(verticalFovRadians / 2)
-        val u = (launch.x - launch.aspect / 2) / focal
-        val v = (launch.y - 0.5) / focal
-        val depth = focal * BALL_RADIUS_M / ballRadius
-        val vz = launch.d1 * depth
-        val vx = depth * launch.vx / focal + u * vz
-        val vy = depth * launch.vy / focal + v * vz
-
-        // Phone axes (x right, y up the screen, z out of the screen) for the back camera, then world.
-        val velocity = toWorld(deviceToWorld, vx, -vy, -vz)
-        val offset = toWorld(deviceToWorld, u * depth, -v * depth, -depth)
+        val world = worldLaunch(launch, ballRadius, verticalFovRadians, deviceToWorld) ?: return null
+        val velocity = world.velocity
+        val offset = world.tee
 
         val east = velocity[0]
         val north = velocity[1]

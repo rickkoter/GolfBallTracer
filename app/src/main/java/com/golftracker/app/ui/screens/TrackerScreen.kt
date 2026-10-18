@@ -294,11 +294,19 @@ fun TrackerScreen(
         if (ballLanding == null) locatorProblem = "The launch speed didn't look like a real shot, so there's no landing estimate."
     }
 
+    // Which way the camera faced and how wide it sees, to estimate a flight that was only glimpsed.
+    fun cameraPose(): LaunchPhysics.CameraPose? {
+        val fov = verticalFov ?: return null
+        val rotation = launchRotation ?: return null
+        return LaunchPhysics.CameraPose(fov, rotation)
+    }
+
     // Finds the ball's flight among everything that moved, then saves the shot with its recording.
     suspend fun analyzeCapturedShot(shot: CapturedShot) {
         phase = Phase.ANALYZING
         val clip = scope.async { recorder.stop() }
-        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitFlight(shot) }
+        val camera = cameraPose()
+        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitBest(shot, camera) }
         val video = clip.await()
 
         if (fitted == null && !shot.heardImpact) {
@@ -324,7 +332,7 @@ fun TrackerScreen(
             shot.candidates.size, seconds, fps,
             if (shot.heardImpact) "heard" else "seen",
             if (shot.launchTimestampNs != null) "✓" else "✗"
-        )
+        ) + if (fitted?.estimated == true) "\nBall seen for %.2f s: the dashed part of the tracer is estimated".format(fitted.trackedSeconds) else ""
         detectedSpots = shot.candidates.map { ScreenPoint(it.x, it.y, it.timestampNs / 1_000_000L) }.shiftedToStill()
 
         val record = ShotRecord(
@@ -334,14 +342,15 @@ fun TrackerScreen(
             landingLocation = gpsLanding,
             distanceYards = distanceYards,
             distanceMeters = distanceMeters,
-            points = detectedPoints
+            points = detectedPoints,
+            tracerEstimated = fitted?.estimated ?: false
         )
         currentShotId = record.id
         pendingSaves++
         saveNote = "Saving recording…"
         isRetracing = video != null
         videoNote = if (video != null) "Tracing again from the full video…" else "No video for this shot"
-        processor.process(ShotProcessor.NewShot(record, shot, fitted, video, shotStill, stillShift))
+        processor.process(ShotProcessor.NewShot(record, shot, fitted, video, shotStill, stillShift, camera))
 
         phase = Phase.LISTENING
         startListening()
@@ -350,8 +359,13 @@ fun TrackerScreen(
     // In a debug recording a shot is only noted, not saved, and the video keeps running.
     suspend fun noteDebugShot(shot: CapturedShot) {
         phase = Phase.ANALYZING
-        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitFlight(shot) }
-        val detail = if (fitted == null) "no ball flight found" else "tracer %d points, ball followed %.2f s".format(fitted.tracer.size, fitted.trackedSeconds)
+        val camera = cameraPose()
+        val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitBest(shot, camera) }
+        val detail = when {
+            fitted == null -> "no ball flight found"
+            fitted.estimated -> "ball seen %.2f s in %d frames, rest estimated, %d points".format(fitted.trackedSeconds, fitted.trackedFrames, fitted.tracer.size)
+            else -> "tracer %d points, ball followed %.2f s".format(fitted.tracer.size, fitted.trackedSeconds)
+        }
         debugRecorder.log("shot-captured", detail)
         clearShot()
         shotStats = "Debug: shot found • $detail (not saved)"
@@ -391,7 +405,8 @@ fun TrackerScreen(
         withContext(Dispatchers.IO) { debugRecorder.stop() }
         debugNote = "Saving debug recording…"
         val clip = recorder.stop()
-        val saved = withContext(Dispatchers.IO) { debugRecorder.finish(clip?.file, clip?.startNs, isMicOn) }
+        val pose = verticalFov?.let { fov -> orientation.rotationMatrix()?.let { LaunchPhysics.CameraPose(fov, it) } }
+        val saved = withContext(Dispatchers.IO) { debugRecorder.finish(clip?.file, clip?.startNs, isMicOn, pose) }
         debugNote = saved?.let { "🐞 Debug recording saved to $it" } ?: "Couldn't save the debug recording"
         isSavingDebug = false
         // Back to normal listening, limits and all.
@@ -662,6 +677,7 @@ fun TrackerScreen(
                                 limitReached -> "⚠️ ${ShotRepository.MAX_RECORDINGS} shot recordings stored • Tap here to free up space"
                                 showingShot && isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave • Listening for the next shot"
                                 showingShot && isBallFlightMissing -> "⚠️ Ball flight not found • Listening for the next shot"
+                                showingShot && detectedPoints.any { it.isEstimated } -> "⛳ Shot saved! Dashed part of the tracer is estimated • Listening for the next shot"
                                 showingShot -> "⛳ Shot saved! Tap screen for distance • Listening for the next shot"
                                 else -> "👂 Listening • Just hit: the shot is picked up by the strike's sound and the ball leaving"
                             },

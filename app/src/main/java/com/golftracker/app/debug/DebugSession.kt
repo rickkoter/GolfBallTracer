@@ -47,7 +47,10 @@ object DebugSession {
         /** Roughly when the video's first frame was taken. */
         val videoStartNs: Long? = null,
         val micEnabled: Boolean,
-        val events: List<Event> = emptyList()
+        val events: List<Event> = emptyList(),
+        /** The camera's field of view across the screen's height and its orientation (phone to east/north/up), if known. */
+        val verticalFovRadians: Double? = null,
+        val deviceToWorld: List<Float>? = null
     )
 
     val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
