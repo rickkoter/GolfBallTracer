@@ -303,6 +303,20 @@ fun TrackerScreen(
         }
     }
 
+    /**
+     * Turns listening off, from the one switch: a shot being followed or worked out is let go, and the
+     * camera, microphone and video stop. A shot already on screen stays, to review it.
+     */
+    fun stopListeningByUser() {
+        resetCount++
+        resetAtNs = SystemClock.elapsedRealtimeNanos()
+        strikeNote = null
+        if (phase != Phase.LISTENING) clearShot()
+        isPaused = true
+        debugRecorder.log("listening-off", "")
+        stopListening()
+    }
+
     // Keep an eye on whether the shot detector keeps up with the camera.
     LaunchedEffect(Unit) {
         var wasBehind = false
@@ -502,6 +516,15 @@ fun TrackerScreen(
         // Already on its way when the user started over.
         if (event is ShotTrigger.Event.Started && event.impactNs < resetAtNs) return
         if (event is ShotTrigger.Event.Missed && event.impactNs < resetAtNs) return
+        // A phone pointing at the ground isn't filming a shot: it's being carried, or balls are being raked
+        // over. A strike heard then (a footstep, a club tapping) is let go.
+        if (event is ShotTrigger.Event.Started && orientation.rotationMatrix()?.let { cameraLooksDown(it) } == true) {
+            debugRecorder.log("shot-ignored", "phone pointing at the ground", event.impactNs)
+            strikeNote = "🔊 heard a strike with the phone pointing at the ground • not taken as a shot"
+            resetAtNs = SystemClock.elapsedRealtimeNanos()
+            detector.restart()
+            return
+        }
         when (event) {
             is ShotTrigger.Event.Started -> {
                 debugRecorder.log(
@@ -724,7 +747,7 @@ fun TrackerScreen(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .clickable { if (limitReached) showLimitPrompt = true else resetShot() }
+                    .clickable(enabled = limitReached) { showLimitPrompt = true }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -749,8 +772,8 @@ fun TrackerScreen(
                                         debugSeconds / 60, debugSeconds % 60, DebugSessionRecorder.MAX_SECONDS
                                     )
                                 phase == Phase.ANALYZING -> "⏳ Finding ball flight…"
-                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands, ↻ to drop it"
-                                isPaused -> "⏸ Paused • Tap ▶ below to listen for shots"
+                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands"
+                                isPaused -> "⏹ Not listening • Tap Start listening to pick up shots"
                                 limitReached -> "⚠️ ${ShotRepository.MAX_RECORDINGS} shot recordings stored • Tap here to free up space"
                                 showingShot && isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave • Listening for the next shot"
                                 showingShot && isBallFlightMissing -> "⚠️ Ball flight not found • Listening for the next shot"
@@ -765,7 +788,7 @@ fun TrackerScreen(
                         val details = if (phase == Phase.LISTENING && !isPaused) {
                             val mic = when {
                                 !isMicEnabled -> "off (watching only)"
-                                !micPermission -> "not allowed • tap 🎤"
+                                !micPermission -> "not allowed • turn it on in ⚙ Settings"
                                 isMicOn -> "on " + levelBar(micLevelDb)
                                 else -> "couldn't open"
                             }
@@ -784,7 +807,7 @@ fun TrackerScreen(
             }
         }
 
-        // 4. Bottom: reset and pause, plus Locate Ball and Review once a shot has been recorded
+        // 4. Bottom: the listening switch, plus Locate Ball and Review once a shot has been recorded
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -794,76 +817,34 @@ fun TrackerScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Starting over: always there, and spelled out, since it's what to reach for whenever the
-            // screen isn't simply listening (a shot showing or being followed, a pause, a note).
-            val cleanlyListening = isListening && !isPaused && phase == Phase.LISTENING && !showingShot && strikeNote == null
-            Button(
-                onClick = {
-                    resetShot()
-                    locationManager.reset()
-                },
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (cleanlyListening) GolfDarkCard.copy(alpha = 0.85f) else GolfNeonCyan
-                ),
-                contentPadding = PaddingValues(horizontal = 14.dp),
-                modifier = Modifier.height(44.dp)
-            ) {
-                val tint = if (cleanlyListening) Color.White else GolfDarkBg
-                Icon(Icons.Default.Refresh, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(if (cleanlyListening) "Reset" else "Listen again", color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            IconButton(
-                onClick = {
-                    if (isPaused) {
-                        isPaused = false
-                        startListening()
-                    } else {
-                        isPaused = true
-                        clearShot()
-                        stopListening()
-                    }
-                },
-                // Stop the debug recording first: pausing would cut its video off.
-                enabled = !isDebugRecording && !isSavingDebug,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(GolfDarkCard.copy(alpha = 0.85f))
-            ) {
-                Icon(
-                    if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                    contentDescription = if (isPaused) "Listen for shots" else "Pause listening",
-                    tint = Color.White
-                )
-            }
-            // The microphone, which hears the strike. Asks for permission if it hasn't been given.
-            IconButton(
-                onClick = {
-                    when {
-                        !micPermission -> {
-                            onMicEnabledChange(true)
-                            micPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+            // The one switch for listening. Starting always starts afresh: the shot on screen is cleared and
+            // listening picks up from what the camera sees now. During a debug recording it has its own stop.
+            if (!isDebugRecording && !isSavingDebug) {
+                val on = !isPaused
+                Button(
+                    onClick = {
+                        if (on) {
+                            stopListeningByUser()
+                        } else {
+                            resetShot()
+                            locationManager.reset()
                         }
-                        else -> onMicEnabledChange(!isMicEnabled)
-                    }
-                },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(GolfDarkCard.copy(alpha = 0.85f))
-            ) {
-                val usable = isMicEnabled && micPermission
-                Icon(
-                    if (usable) Icons.Default.Mic else Icons.Default.MicOff,
-                    contentDescription = if (usable) "Turn microphone off" else "Turn microphone on",
-                    tint = when {
-                        isMicOn -> GolfNeonLime
-                        isMicEnabled && !micPermission -> GolfNeonGold
-                        else -> Color.White
-                    }
-                )
+                    },
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (on) GolfDarkCard.copy(alpha = 0.9f) else GolfNeonCyan),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    modifier = Modifier.height(44.dp)
+                ) {
+                    val tint = if (on) Color.White else GolfDarkBg
+                    Icon(
+                        if (on) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = if (on) GolfNeonRed else GolfDarkBg,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (on) "Stop listening" else "Start listening", color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
             if (isDebugRecording || isSavingDebug) {
                 Spacer(modifier = Modifier.weight(1f))
@@ -1048,6 +1029,27 @@ fun TrackerScreen(
                         checked = isFlashEnabled,
                         onCheckedChange = { isFlashEnabled = it }
                     )
+                    // The microphone hears the strike, which starts a shot. Asks for permission if it hasn't been given.
+                    SettingSwitch(
+                        icon = if (isMicEnabled && micPermission) Icons.Default.Mic else Icons.Default.MicOff,
+                        label = "Hear the strike (microphone)",
+                        checked = isMicEnabled && micPermission,
+                        onCheckedChange = { on ->
+                            if (on && !micPermission) {
+                                onMicEnabledChange(true)
+                                micPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                onMicEnabledChange(on)
+                            }
+                        }
+                    )
+                    if (!isMicEnabled || !micPermission) {
+                        Text(
+                            "Without it, shots are looked for in movement alone, which misses more and picks up things that aren't shots.",
+                            color = GolfTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
                     SettingSwitch(
                         icon = Icons.Default.Edit,
                         label = "Tune curve by dragging",
@@ -1163,6 +1165,15 @@ private fun SettingSwitch(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+/**
+ * Whether the back camera points steeply at the ground, from the phone's rotation (row-major, phone axes to
+ * east/north/up). The camera looks along the phone's -z axis, so its upward component is -r[8].
+ */
+private fun cameraLooksDown(r: FloatArray): Boolean = -r[8] < -GROUND_POINTING_SIN
+
+/** Pointing more than this far below level (sin of 55°) is filming the ground, not a shot. */
+private const val GROUND_POINTING_SIN = 0.82f
 
 /** The shot detector being further behind the camera than this is worth telling the user. */
 private const val LAG_WORTH_SHOWING_S = 1.5f

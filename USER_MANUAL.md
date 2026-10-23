@@ -46,7 +46,7 @@ The app opens directly to the **Tracer View** camera screen.
 | | SHOT DISTANCE: 275 YDS (251 m)                   | |
 | | [ Tee Locked ]                 [ Pin Ball GPS ]  | |
 | +--------------------------------------------------+ |
-|        (Reset)       (( RECORD SHOT ))     (Simulate)|
+| (■ Stop listening)        (Locate Ball)   ( Review ) |
 +------------------------------------------------------+
 ```
 
@@ -57,15 +57,16 @@ There's nothing to tap before a shot. While the Tracer View is open, the app **l
 2. **Select Your Club** (optional): tap the club badge on the telemetry card.
 3. **Just hit.** The crack of the club on the ball, together with the ball vanishing from where it sat, starts the shot. A ring marks the ball that was hit and the banner turns red (**🔴 Shot detected!**) while the flight is followed for a few seconds. Tap the screen to finish early once the ball lands.
    - A practice swing, a clap or a shot from the next bay doesn't start anything: it takes both the sound and the ball leaving.
-   - The **🎤 button** (bottom left) turns listening for the strike on and off. It's on whenever the app starts. If it's gold, the microphone isn't allowed yet: tap it to allow it. While it's on, a little bar in the banner shows how loud it is, so you can see it's hearing.
+   - The microphone is what hears the strike. It's on whenever the app starts; **⚙ Settings › Hear the strike** turns it off, or asks for permission if it isn't allowed yet. While it's on, a little bar in the banner shows how loud it is, so you can see it's hearing.
    - Each sharp sound that doesn't start a shot is noted in the banner, e.g. "heard a strike (+24 dB) during a swing • no ball seen leaving". The frames from those few seconds are saved to `Downloads/GolfBallTracer/missed-strike_*.zip` (at most one every 15 seconds) so missed shots can be worked out later.
    - With the microphone off, the app falls back to watching for motion alone, which misses more shots and picks up things that aren't shots.
-   - A phone held in the hand works, even if it drifts or tilts during the swing, though a tripod or a steady lean still gives the longest tracers.
+   - A phone held in the hand works, even if it drifts or tilts during the swing, though a tripod or a steady lean still gives the longest tracers. Filming from close behind with the ball right at the bottom of the picture works too.
+   - Strikes heard while the phone points at the ground (carried, or while balls are raked over) aren't taken as shots.
    - If shot detection ever falls behind the camera (a slow phone, or a lot going on), the banner says **⏳ Shot detection is … s behind the camera** until it catches up.
 4. **The tracer appears** over a still from just after the strike, and the shot is **saved to your Shot Log automatically**, along with its video. When the ball is only visible for a moment (a small, distant ball lost against trees or sky), the tracer is **estimated**: the part where the ball was actually seen is drawn solid, and the rest of the flight, worked out from how fast and which way it left the tee, is drawn **dashed**. A few seconds later the app traces the shot again from the full-resolution, full-frame-rate video. If that trace follows the ball at least as far, it replaces the first one. The banner says which was used.
    - **Is the shot worth keeping?** When the ball's flight can't be trusted, the app asks you to **Keep** or **Discard** the shot. It asks when part of the shot wasn't recorded (for example the video started after the strike, or camera frames were missed during the flight), and when a strike was heard but no ball was seen flying (often not a real shot). Discarding removes the shot with its recording and snapshot.
-5. **Keep hitting.** The app is already listening for the next shot. Tap **Review** to open the shot, **Locate Ball** to find where it landed, ⏸ to stop listening (for example while walking with the phone), or 🎤 to turn the microphone off.
-6. **↻ Listen again** (bottom left) starts over from anything: it clears the shot on screen, drops a shot being followed or worked out, clears notes, ends a pause, and listens to what the camera sees from that moment. The button lights up whenever the app isn't simply listening; while it is, it reads **↻ Reset**. Tapping the banner does the same.
+5. **Keep hitting.** The app is already listening for the next shot. Tap **Review** to open the shot or **Locate Ball** to find where it landed.
+6. **Stop listening / Start listening** (bottom left) is the one switch for listening. Stop it while walking with the phone or between sessions: a shot being followed is dropped, the camera, microphone and video stop, and a shot already on screen stays so you can review it. **Start listening** always starts afresh: it clears the screen and listens to what the camera sees from that moment. During a debug recording the switch is replaced by **Stop debug**.
 
 ---
 

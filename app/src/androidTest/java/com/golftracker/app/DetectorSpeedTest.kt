@@ -4,6 +4,7 @@ import android.os.Environment
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.golftracker.app.debug.DebugSession
+import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.ImpactBallLocator
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.ShotTrigger
@@ -35,9 +36,16 @@ class DetectorSpeedTest {
             val info = file.inputStream().use { DebugSession.read(it) { f -> frames += f } }.info
             val strikes = ArrayDeque(info.events.filter { it.kind == "strike-heard" }.map { it.timestampNs }.sorted())
             var capturing = false
+            val fitMs = ArrayList<Double>()
             val trigger = ShotTrigger(keepFrames = false) { e ->
                 if (e is ShotTrigger.Event.Started) capturing = true
-                if (e is ShotTrigger.Event.Captured) capturing = false
+                if (e is ShotTrigger.Event.Captured) {
+                    capturing = false
+                    // Working out the flight happens after the capture, while listening for the next shot.
+                    val t0 = System.nanoTime()
+                    BallFlightFitter.fitBest(e.shot, null)
+                    fitMs += (System.nanoTime() - t0) / 1e6
+                }
             }
             trigger.startListening()
             val listen = ArrayList<Double>()
@@ -63,6 +71,7 @@ class DetectorSpeedTest {
                 val found = ImpactBallLocator.locate(window, t, heardNs = t, offsets = offsets) { line -> if (line.contains("[")) Log.i(TAG, line) }
                 Log.i(TAG, "  ball finder at a strike: %.0f ms, %s".format((System.nanoTime() - t0) / 1e6, found?.let { "ball (%.3f, %.3f)".format(it.ball.x, it.ball.y) } ?: "nothing"))
             }
+            if (fitMs.isNotEmpty()) Log.i(TAG, "  flight fitting: ${fitMs.joinToString { "%.0f ms".format(it) }}")
             Log.i(TAG, "${file.name} ${frames.firstOrNull()?.width}x${frames.firstOrNull()?.height}: %.1f s of frames took %.1f s. listening %s; capturing %s"
                 .format(filmed, spent, listen.summary(), capture.summary()))
         }

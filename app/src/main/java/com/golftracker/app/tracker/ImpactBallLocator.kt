@@ -50,6 +50,7 @@ internal object ImpactBallLocator {
     /** At least this much of the ball's middle has to have gone dark. */
     private const val MIN_GONE = 0.6f
     private const val EDGE = 0.04f
+    private const val BOTTOM_MARGIN_PX = 2f
     private const val MIN_UNCHANGED_AROUND = 0.45f
     private const val MIN_STEADY = 0.5f
     /**
@@ -200,9 +201,15 @@ internal object ImpactBallLocator {
             fun skip(why: String) = trace?.invoke("  (%3d,%3d) %s: %s".format(px, py,
                 circle?.let { "ball (%.3f, %.3f) r %.1f contrast %.0f".format(it.x, it.y, it.radiusCells, it.contrast) } ?: "no ball", why))
             if (circle == null || circle.radiusCells > maxRadius) { skip("not ball-sized"); continue }
-            // A ball on the tee is never right at the edge of the picture; things passing out of it are.
-            if (circle.x !in EDGE..1 - EDGE || circle.y !in EDGE..1 - EDGE) { skip("at the edge"); continue }
+            // A ball on the tee is rarely right at the side or top of the picture; things passing out of it
+            // are. Along the bottom is different: filmed from close behind, the tee is often framed right
+            // there, so there the whole ball just has to be in the picture.
+            val bottomLimit = 1 - (circle.radiusCells + BOTTOM_MARGIN_PX) / h
+            if (circle.x !in EDGE..1 - EDGE || circle.y < EDGE || circle.y > bottomLimit) { skip("at the edge"); continue }
             // The whole ball must have gone, not just the patch beside it where a club or hand came in.
+            // Over the short stretch frames line up less well, and a single bright pixel is too easily a gap in
+            // the trees: only a ball big enough to measure counts.
+            if (short && circle.radiusCells <= TINY_RADIUS) { skip("too small to trust over the short stretch"); continue }
             val cx = circle.x * w - 0.5f
             val cy = circle.y * h - 0.5f
             val (gone, meanDrop) = vanished(medBefore, medAfter, w, h, cx, cy, circle.radiusCells)

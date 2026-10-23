@@ -95,14 +95,29 @@ class ShotReplayTest {
                 trigger.finishCapture()
                 val started = events.filterIsInstance<ShotTrigger.Event.Started>().firstOrNull()
                 val again = events.filterIsInstance<ShotTrigger.Event.Captured>().firstOrNull()?.shot
+                again?.ballRadius?.let { radiusForSpeed = it }
                 println("  auto-detect again: " + (started?.let {
-                    "ball at (%.3f, %.3f), tracer %d points".format(it.ball.x, it.ball.y, again?.let { s -> BallFlightFitter.fit(s).size } ?: 0)
+                    "ball at (%.3f, %.3f), %s".format(it.ball.x, it.ball.y, again?.let { s -> describe(BallFlightFitter.fitBest(s, null)) } ?: "not captured")
                 } ?: "no shot found" + if (events.any { it is ShotTrigger.Event.Missed }) " (strike reported as missed)" else ""))
             }
             // Saved alongside so the new detections can be looked at frame by frame.
             File(dir, "replayed").mkdirs()
             File(dir, "replayed/${file.name}").outputStream().use { ShotDebugArchive.write(replayed, tracer, info.device, it) }
         }
+    }
+
+    private fun describe(flight: BallFlightFitter.Flight?) = when {
+        flight == null -> "no ball flight"
+        flight.estimated -> "ball seen %.2f s in %d frames, rest estimated".format(flight.trackedSeconds, flight.trackedFrames)
+        else -> "ball followed %.2f s in %d frames".format(flight.trackedSeconds, flight.trackedFrames)
+    } + (flight?.let { f -> ", launched at about %.0f m/s".format(speed(f)) } ?: "")
+
+    private var radiusForSpeed = 0.01f
+    private fun speed(f: BallFlightFitter.Flight): Double {
+        val focal = 0.714
+        val d = focal * 0.021335 / radiusForSpeed
+        val l = f.launch
+        return kotlin.math.hypot(kotlin.math.hypot(l.vx, l.vy) * d / focal, l.d1 * d)
     }
 
     /** tracking.json from a shared shot recording, if this is one. */

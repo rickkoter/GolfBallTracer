@@ -43,7 +43,7 @@ class DecodedSessionReplayTest {
             val pose = info.verticalFovRadians?.let { fov -> info.deviceToWorld?.let { LaunchPhysics.CameraPose(fov, it.toFloatArray()) } }
             for (e in events) when (e) {
                 is ShotTrigger.Event.Started -> println("   started ball (%.3f, %.3f) r %.4f".format(e.ball.x, e.ball.y, e.ball.radius))
-                is ShotTrigger.Event.Captured -> println("   captured: " + (BallFlightFitter.fitBest(e.shot, pose)?.let { "seen %.2f s, %d frames, est %b".format(it.trackedSeconds, it.trackedFrames, it.estimated) } ?: "no flight"))
+                is ShotTrigger.Event.Captured -> println("   captured: " + (BallFlightFitter.fitBest(e.shot, pose)?.let { "seen %.2f s, %d frames, est %b".format(it.trackedSeconds, it.trackedFrames, it.estimated) + ", launched at about %.0f m/s".format(e.shot.ballRadius?.let { r -> val d = 0.714 * 0.021335 / r; kotlin.math.hypot(kotlin.math.hypot(it.launch.vx, it.launch.vy) * d / 0.714, it.launch.d1 * d) } ?: 0.0) } ?: "no flight"))
                 is ShotTrigger.Event.Missed -> println("   missed")
             }
         }

@@ -46,6 +46,27 @@ class BallFlightFitterTest {
         return Pair(0.5 + f * bx / zc / aspect, 0.5 - f * yc / zc + (teeY - 0.7044))
     }
 
+    /**
+     * As filmed in the backyard on 2026-10-23: the phone only 1.2 m behind the ball and 0.8 m up, so the
+     * ball is big on screen, shoots a third of the way up it in a couple of frames and then nearly stops
+     * as it flies away. Returns the screen position, and the ball's radius on screen at the tee.
+     */
+    private val closeF = 0.5 / kotlin.math.tan(Math.toRadians(32.5))
+    private val closePitch = Math.toRadians(12.0)
+    private fun closeCamera(bx: Double, by: Double, bz: Double): Triple<Double, Double, Double> {
+        val y = by - 0.8
+        val z = bz + 1.2
+        return Triple(bx, y * cos(closePitch) + z * sin(closePitch), -y * sin(closePitch) + z * cos(closePitch))
+    }
+    private val closeTee = closeCamera(0.0, 0.0, 0.0)
+    private val closeRadius = (closeF * 0.021335 / closeTee.third).toFloat()
+    private fun closeChip(t: Double): Pair<Double, Double> {
+        val launch = Math.toRadians(40.0)
+        val (x, yc, zc) = closeCamera(0.4 * t, 15 * sin(launch) * t - 4.9 * t * t, 15 * cos(launch) * t)
+        val y0 = 0.5 - closeF * closeTee.second / closeTee.third
+        return Pair(0.5 + closeF * x / zc / aspect, 0.5 - closeF * yc / zc + (teeY - y0))
+    }
+
     /** Side on: a wide arc across the screen. */
     private fun faceOn(t: Double) = Pair(
         teeX + 0.25 * t,
@@ -60,7 +81,10 @@ class BallFlightFitterTest {
         flightS: Double = 2.5,
         noisePerFrame: Int = 5,
         withGlove: Boolean = true,
-        withClub: Boolean = true
+        withClub: Boolean = true,
+        ballRadius: Float = 0.008f,
+        /** The ball is first picked out this long after launch: before that, it's a blur too faint to see. */
+        unseenS: Double = 0.0
     ): CapturedShot {
         val rnd = Random(seed)
         val candidates = ArrayList<BallCandidate>()
@@ -86,7 +110,7 @@ class BallFlightFitterTest {
                     ns, 35f
                 )
             }
-            if (flight != null && t > 0 && t <= flightS && rnd.nextFloat() > 0.15f) {
+            if (flight != null && t > unseenS && t <= flightS && rnd.nextFloat() > 0.15f) {
                 val (x, y) = flight(t)
                 candidates += BallCandidate(
                     (x + rnd.nextDouble(-0.002, 0.002)).toFloat(),
@@ -99,7 +123,7 @@ class BallFlightFitterTest {
             candidates = candidates,
             teeX = teeX,
             teeY = teeY,
-            ballRadius = 0.008f,
+            ballRadius = ballRadius,
             launchTimestampNs = if (launchKnown) 1_000_000_000L + launchFrame * frameNs else null,
             aspect = aspect
         )
@@ -145,6 +169,17 @@ class BallFlightFitterTest {
     fun tracesChipFromBehind() {
         for (seed in 1..5) {
             assertFollows(::chip, BallFlightFitter.fit(shot(::chip, launchKnown = true, seed = seed, flightS = 1.3)), 1.0)
+        }
+    }
+
+    @Test
+    fun tracesChipFilmedFromCloseBehind() {
+        // First seen over 0.4 screen heights from the tee, and slowing hard: both used to rule it out.
+        for (seed in 1..5) {
+            val shot = shot(::closeChip, launchKnown = true, seed = seed, flightS = 1.0, ballRadius = closeRadius, unseenS = 0.06)
+            val flight = BallFlightFitter.fitBest(shot, null)
+            assertTrue("seed $seed: no flight", flight != null && flight.tracer.size >= 10)
+            assertTrue("seed $seed: not followed", flight!!.trackedSeconds >= 0.3)
         }
     }
 

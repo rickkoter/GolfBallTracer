@@ -38,6 +38,16 @@ object BallFlightFitter {
     private const val MAX_THIRD_SIGHTING_S = 0.45
     private const val MAX_FIRST_SEEN_AFTER_LAUNCH_S = 0.35
     private const val MAX_FIRST_SEEN_DISTANCE = 0.35
+    /**
+     * A ball close to the camera crosses the screen proportionally faster, so the first sighting may be
+     * this many ball radii (on screen) from the tee, when that's further than the limits in screen heights.
+     */
+    private const val MAX_FIRST_SEEN_RADII = 50.0
+    private const val MAX_FIRST_SEEN_DISTANCE_CLOSE = 0.6
+    /** How much earlier than the known launch a constant-speed guess may be, for a ball slowing on screen. */
+    private const val MAX_EARLY_LINEAR_LAUNCH_S = 0.35
+    /** Largest d2 a path may have: gravity and drag only change the ball's speed away from the camera so fast. */
+    private const val MAX_DEPTH_ACCELERATION = 6.0
     private const val MIN_LAUNCH_SPEED = 0.25 // screen heights per second
     private const val MIN_SEED_FRAMES = 5
     private const val MIN_SEED_TRAVEL = 0.15 // screen heights from the tee within the seed window
@@ -158,7 +168,7 @@ object BallFlightFitter {
         // the whole recording instead turned swaying trees and a golfer's head into flights, and a wrong
         // tracer is worse than none.
         val launchT = shot.launchTimestampNs?.let { (it - t0Ns) / 1e9 } ?: return null
-        val seeds = findSeeds(frames, frameDt, teeX, teeY, tol, launchT)
+        val seeds = findSeeds(frames, frameDt, teeX, teeY, tol, launchT, firstSeenLimit(MAX_FIRST_SEEN_DISTANCE, shot.ballRadius), shot.launchSeen)
 
         // Refining can turn a seed built from three awkwardly spaced sightings into the full flight,
         // so rank seeds only after refining them. A clubhead can briefly follow a launch-like path;
@@ -168,6 +178,8 @@ object BallFlightFitter {
             if (track.size < MIN_TRACK_FRAMES) continue
             if (track.last().t - refined.path.t0 < MIN_TRACKED_FLIGHT_S) continue
             val path = refined.path
+            // Faster than any golf ball leaves a club, for a ball this size on screen: something else.
+            if (shot.ballRadius?.let { launchSpeedMps(path, it) > MAX_BALL_SPEED_MPS } == true) continue
             return Flight(
                 toTracer(refined, track, teeX, teeY, t0Ns, aspect),
                 ScreenLaunch(path.x0, path.y0, path.launchVx, path.launchVy, path.d1, aspect),
@@ -204,6 +216,7 @@ object BallFlightFitter {
             .filter { o -> shot.changedArea?.let { m -> m.lum(((o.x / aspect) * m.width).toInt().coerceIn(0, m.width - 1), (o.y * m.height).toInt().coerceIn(0, m.height - 1)) == 0 } ?: true }
         if (obs.size < MIN_SHORT_SIGHTINGS) return null
         val b2 = 0.5 * GRAVITY_MPS2 * radius / BALL_RADIUS_M
+        val firstShortLimit = firstSeenLimit(MAX_FIRST_SHORT_DISTANCE, radius)
         // How far the ball was, in metres, to keep the launch to speeds a golf ball can have.
         val focal = camera?.let { 0.5 / kotlin.math.tan(it.verticalFovRadians / 2) } ?: TYPICAL_FOCAL
         val distanceM = focal * BALL_RADIUS_M / radius
@@ -258,7 +271,7 @@ object BallFlightFitter {
                 if (pts.size < MIN_SHORT_SIGHTINGS) continue
                 // Seen soon after it left, and getting away fast: spots that happen to line up drift slowly.
                 if (pts.first().t - t0 > MAX_FIRST_SHORT_SIGHTING_S) continue
-                if (pts.first().let { dist(it.x, it.y, teeX, teeY) } > MAX_FIRST_SHORT_DISTANCE) continue
+                if (pts.first().let { dist(it.x, it.y, teeX, teeY) } > firstShortLimit) continue
                 if (pts.last().let { dist(it.x, it.y, teeX, teeY) / (it.t - t0) } < MIN_SEEN_SPEED) continue
                 val refit = solve(t0, pts)?.takeIf { plausible(it) } ?: continue
                 val err = pts.sumOf { dist(it.x, it.y, refit.x(it.t), refit.y(it.t)).let { d -> d * d } } / pts.size
@@ -319,8 +332,24 @@ object BallFlightFitter {
     }
 
     /** The best few distinct seeds, best first. */
+    /**
+     * How fast the ball left, in m/s: its size on screen says how far away it was (with a typical phone
+     * camera's field of view), which turns its speed across the screen and away from the camera into metres.
+     */
+    private fun launchSpeedMps(path: Path, ballRadius: Float): Double {
+        if (ballRadius <= 0f) return 0.0
+        val distanceM = TYPICAL_FOCAL * BALL_RADIUS_M / ballRadius
+        val across = hypot(path.launchVx, path.launchVy) * distanceM / TYPICAL_FOCAL
+        return hypot(across, path.d1 * distanceM)
+    }
+
+    /** How far from the tee, in screen heights, the ball may first be seen: further for a ball close to the camera. */
+    private fun firstSeenLimit(base: Double, ballRadius: Float?): Double =
+        max(base, min(MAX_FIRST_SEEN_DISTANCE_CLOSE, (ballRadius ?: 0f) * MAX_FIRST_SEEN_RADII))
+
     private fun findSeeds(
-        frames: List<Frame>, frameDt: Double, teeX: Double, teeY: Double, tol: Double, launchT: Double
+        frames: List<Frame>, frameDt: Double, teeX: Double, teeY: Double, tol: Double, launchT: Double, firstSeenLimit: Double,
+        launchSeen: Boolean
     ): List<Seed> {
         val top = ArrayList<Seed>()
         fun offer(seed: Seed) {
@@ -342,7 +371,9 @@ object BallFlightFitter {
             if (f1.t < launchT - 0.05 || f1.t > launchT + MAX_FIRST_SEEN_AFTER_LAUNCH_S) continue
             for (p1 in f1.obs) {
                 val d1 = dist(p1.x, p1.y, teeX, teeY)
-                if (d1 > MAX_FIRST_SEEN_DISTANCE) continue
+                if (d1 > firstSeenLimit) continue
+                // It got there from the tee since the launch: something near the tee long after is just clutter.
+                if (d1 / max(p1.t - launchT, frameDt / 2) < MIN_SEEN_SPEED) continue
                 for (j in i + 1 until frames.size) {
                     val f2 = frames[j]
                     if (f2.t - f1.t > MAX_SECOND_SIGHTING_S) break
@@ -352,9 +383,10 @@ object BallFlightFitter {
                         val speed = dist(p1.x, p1.y, p2.x, p2.y) / (f2.t - f1.t)
                         if (speed < MIN_LAUNCH_SPEED) continue
                         // Launch time, first guess: back up from p1 to the tee at the speed between p1 and p2.
+                        // A ball flying away from a camera close behind slows down a lot on screen, which
+                        // makes this guess early, so only a guess well after the launch rules a pair out.
                         val linearT0 = p1.t - d1 / speed
-                        if (p1.t - linearT0 > MAX_FIRST_SEEN_AFTER_LAUNCH_S) continue
-                        if (abs(linearT0 - launchT) > 0.15) continue
+                        if (linearT0 - launchT > 0.15 || launchT - linearT0 > MAX_EARLY_LINEAR_LAUNCH_S) continue
                         val dx12 = p2.x - p1.x
                         val dy12 = p2.y - p1.y
 
@@ -370,14 +402,19 @@ object BallFlightFitter {
                                     (sqrt(dx12 * dx12 + dy12 * dy12) * sqrt(dx23 * dx23 + dy23 * dy23) + 1e-12)
                                 if (cos < 0.25) continue
 
-                                for (t0 in launchTimes(p1, p2, p3, d1, d2, teeX, teeY, linearT0, frameDt, launchT)) {
-                                    val path = solvePath(t0, teeX, teeY, listOf(p1, p2, p3)) ?: continue
+                                for (t0 in launchTimes(p1, p2, p3, d1, d2, teeX, teeY, linearT0, frameDt, launchT, launchSeen)) {
+                                    // Three sightings pin all six unknowns, so a little blur or timing error in a fast
+                                    // early one can throw the depth's acceleration far off; then try again without it.
+                                    val full = solvePath(t0, teeX, teeY, listOf(p1, p2, p3)) ?: continue
+                                    val path = if (launchesLikeABall(full) || abs(full.d2) <= MAX_DEPTH_ACCELERATION) full
+                                        else solvePath(t0, teeX, teeY, listOf(p1, p2, p3), depthAcceleration = false) ?: continue
                                     if (!launchesLikeABall(path)) continue
                                     var seed = scoreSeed(frames, path, tol)
                                     // A curve through three close, jittery sightings is rough. If it
                                     // looks promising, refit it to everything it matched and rescore.
                                     if (seed.inliers.size >= MIN_SEED_FRAMES - 1) {
-                                        solvePath(t0, teeX, teeY, seed.inliers)
+                                        (solvePath(t0, teeX, teeY, seed.inliers)?.takeIf { launchesLikeABall(it) }
+                                            ?: solvePath(t0, teeX, teeY, seed.inliers, depthAcceleration = false))
                                             ?.takeIf { launchesLikeABall(it) }
                                             ?.let { scoreSeed(frames, it, tol) }
                                             ?.takeIf { it.score > seed.score }
@@ -402,9 +439,20 @@ object BallFlightFitter {
      */
     private fun launchTimes(
         p1: Obs, p2: Obs, p3: Obs, d1: Double, d2: Double, teeX: Double, teeY: Double,
-        linearT0: Double, frameDt: Double, launchT: Double
+        linearT0: Double, frameDt: Double, launchT: Double, launchSeen: Boolean
     ): List<Double> {
-        val guesses = ArrayList<Double>(2)
+        // Seen to leave: it went between the frame before and this one, and that's all there is to try.
+        if (launchSeen) {
+            val out = ArrayList<Double>(8)
+            for (k in -6..1) {
+                val t0 = launchT + k * frameDt / 6
+                if (t0 < p1.t - 1e-3) out += t0
+            }
+            return out
+        }
+        val guesses = ArrayList<Double>(3)
+        // When the strike was heard: the sound's clock and the camera's can be tens of milliseconds apart.
+        guesses += launchT
         guesses += linearT0
         val d3 = dist(p3.x, p3.y, teeX, teeY)
         // Quadratic d(t) = c0 + c1·(t - t1) + c2·(t - t1)² through the three sightings.
@@ -419,8 +467,8 @@ object BallFlightFitter {
                 .filter { it < 0 && it > -MAX_FIRST_SEEN_AFTER_LAUNCH_S }
                 .maxOrNull()?.let { guesses += p1.t + it }
         }
-        val out = ArrayList<Double>(10)
-        for (g in guesses) for (k in -1..3) {
+        val out = ArrayList<Double>(12)
+        for ((i, g) in guesses.withIndex()) for (k in if (i == 0) -1..1 else -1..3) {
             val t0 = g + k * frameDt / 6
             if (t0 >= p1.t - 1e-3) continue
             if (abs(t0 - launchT) > 0.1) continue
@@ -434,17 +482,67 @@ object BallFlightFitter {
      * Multiplying out the denominator makes each coordinate linear in the six unknowns:
      *   a1 + a2·τ − x·d1 − x·d2·τ = (x − x0)/τ,  and the same for y with b1, b2.
      */
-    private fun solvePath(t0: Double, x0: Double, y0: Double, points: List<Obs>): Path? {
+    private fun solvePath(t0: Double, x0: Double, y0: Double, points: List<Obs>, depthAcceleration: Boolean = true): Path? {
+        // Three sightings, tried by the million while seeding: solved directly, without allocating rows.
+        if (points.size == 3) return solveThree(t0, x0, y0, points[0], points[1], points[2], depthAcceleration)
         val rows = ArrayList<DoubleArray>(points.size * 2)
         val rhs = ArrayList<Double>(points.size * 2)
         for (p in points) {
             val tau = p.t - t0
             if (tau <= 1e-4) return null
-            rows += doubleArrayOf(1.0, tau, 0.0, 0.0, -p.x, -p.x * tau); rhs += (p.x - x0) / tau
-            rows += doubleArrayOf(0.0, 0.0, 1.0, tau, -p.y, -p.y * tau); rhs += (p.y - y0) / tau
+            if (depthAcceleration) {
+                rows += doubleArrayOf(1.0, tau, 0.0, 0.0, -p.x, -p.x * tau); rhs += (p.x - x0) / tau
+                rows += doubleArrayOf(0.0, 0.0, 1.0, tau, -p.y, -p.y * tau); rhs += (p.y - y0) / tau
+            } else {
+                rows += doubleArrayOf(1.0, tau, 0.0, 0.0, -p.x); rhs += (p.x - x0) / tau
+                rows += doubleArrayOf(0.0, 0.0, 1.0, tau, -p.y); rhs += (p.y - y0) / tau
+            }
         }
         val c = leastSquares(rows, rhs) ?: return null
-        return Path(t0, x0, y0, c[0], c[1], c[2], c[3], c[4], c[5])
+        return Path(t0, x0, y0, c[0], c[1], c[2], c[3], c[4], if (depthAcceleration) c[5] else 0.0)
+    }
+
+    /**
+     * [solvePath] for exactly three sightings: six equations in the six unknowns, solved by elimination, or
+     * without depth acceleration, five unknowns by least squares (normal equations).
+     */
+    private fun solveThree(t0: Double, x0: Double, y0: Double, p1: Obs, p2: Obs, p3: Obs, depthAcceleration: Boolean): Path? {
+        val n = if (depthAcceleration) 6 else 5
+        // Rows: [a1, a2, b1, b2, d1, d2 | rhs]
+        val m = DoubleArray(6 * 7)
+        for ((k, p) in arrayOf(p1, p2, p3).withIndex()) {
+            val tau = p.t - t0
+            if (tau <= 1e-4) return null
+            val rx = (2 * k) * 7
+            m[rx + 0] = 1.0; m[rx + 1] = tau; m[rx + 4] = -p.x; m[rx + 5] = -p.x * tau; m[rx + 6] = (p.x - x0) / tau
+            val ry = (2 * k + 1) * 7
+            m[ry + 2] = 1.0; m[ry + 3] = tau; m[ry + 4] = -p.y; m[ry + 5] = -p.y * tau; m[ry + 6] = (p.y - y0) / tau
+        }
+        // A (rows × n) and b; without d2, the normal equations AᵀA·c = Aᵀb.
+        val a = DoubleArray(n * (n + 1))
+        if (depthAcceleration) {
+            for (r in 0 until 6) { for (c in 0 until 6) a[r * 7 + c] = m[r * 7 + c]; a[r * 7 + 6] = m[r * 7 + 6] }
+        } else {
+            for (i in 0 until 5) {
+                for (j in 0 until 5) { var sum = 0.0; for (r in 0 until 6) sum += m[r * 7 + i] * m[r * 7 + j]; a[i * 6 + j] = sum }
+                var sum = 0.0; for (r in 0 until 6) sum += m[r * 7 + i] * m[r * 7 + 6]; a[i * 6 + 5] = sum
+            }
+        }
+        val w = n + 1
+        for (col in 0 until n) {
+            var pivot = col
+            for (r in col + 1 until n) if (abs(a[r * w + col]) > abs(a[pivot * w + col])) pivot = r
+            if (abs(a[pivot * w + col]) < 1e-12) return null
+            if (pivot != col) for (c in 0 until w) { val t = a[col * w + c]; a[col * w + c] = a[pivot * w + c]; a[pivot * w + c] = t }
+            for (r in 0 until n) {
+                if (r == col) continue
+                val f = a[r * w + col] / a[col * w + col]
+                if (f == 0.0) continue
+                for (c in col until w) a[r * w + c] -= f * a[col * w + c]
+            }
+        }
+        fun c(i: Int) = a[i * w + n] / a[i * w + i]
+        return Path(t0, x0, y0, c(0), c(1), c(2), c(3), c(4), if (depthAcceleration) c(5) else 0.0)
     }
 
     /**
@@ -453,7 +551,7 @@ object BallFlightFitter {
      * drag only allow so much acceleration, while arbitrary motion fits with extreme values.
      */
     private fun launchesLikeABall(path: Path): Boolean {
-        if (path.d1 < -2 || path.d1 > 60 || abs(path.d2) > 6) return false
+        if (path.d1 < -2 || path.d1 > 60 || abs(path.d2) > MAX_DEPTH_ACCELERATION) return false
         val vx = path.launchVx
         val vy = path.launchVy
         if (vy >= 0) return false
@@ -498,7 +596,8 @@ object BallFlightFitter {
             var bestErr = Double.MAX_VALUE
             var t0 = first - 2 * frameDt
             while (t0 < first - 1e-3) {
-                val path = solvePath(t0, seed.path.x0, seed.path.y0, pts)
+                val path = solvePath(t0, seed.path.x0, seed.path.y0, pts)?.takeIf { launchesLikeABall(it) }
+                    ?: solvePath(t0, seed.path.x0, seed.path.y0, pts, depthAcceleration = false)
                 if (path != null && launchesLikeABall(path)) {
                     val err = pts.sumOf { o -> dist(o.x, o.y, path.x(o.t), path.y(o.t)).let { it * it } }
                     if (err < bestErr) { bestErr = err; bestPath = path }
@@ -516,21 +615,30 @@ object BallFlightFitter {
     private fun scoreSeed(frames: List<Frame>, path: Path, tol: Double): Seed {
         var score = 0.0
         val inliers = ArrayList<Obs>()
-        for (f in frames) {
-            if (f.t <= path.t0) continue
+        // Straight to the first frame after the launch: this runs for every candidate path.
+        var lo = 0
+        var hi = frames.size
+        while (lo < hi) { val mid = (lo + hi) ushr 1; if (frames[mid].t <= path.t0) lo = mid + 1 else hi = mid }
+        val onTee = 4 * tol * tol
+        for (i in lo until frames.size) {
+            val f = frames[i]
             if (f.t > path.t0 + SEED_WINDOW_S) break
             val px = path.x(f.t)
             val py = path.y(f.t)
-            var bestD = Double.MAX_VALUE
+            var bestD2 = Double.MAX_VALUE
             var bestObs: Obs? = null
             for (o in f.obs) {
                 // Anything still on the tee (the clubhead at impact) says nothing about the flight.
-                if (dist(o.x, o.y, path.x0, path.y0) < 2 * tol) continue
-                val d = dist(o.x, o.y, px, py)
-                if (d < bestD) { bestD = d; bestObs = o }
+                val tx = o.x - path.x0
+                val ty = o.y - path.y0
+                if (tx * tx + ty * ty < onTee) continue
+                val dx = o.x - px
+                val dy = o.y - py
+                val d2 = dx * dx + dy * dy
+                if (d2 < bestD2) { bestD2 = d2; bestObs = o }
             }
-            if (bestObs != null && bestD < tol) {
-                score += 1.0 - bestD / tol
+            if (bestObs != null && bestD2 < tol * tol) {
+                score += 1.0 - sqrt(bestD2) / tol
                 inliers.add(bestObs)
             }
         }
