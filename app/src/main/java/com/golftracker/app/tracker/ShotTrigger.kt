@@ -38,11 +38,16 @@ class ShotTrigger(
         /**
          * A strike was heard but no ball was seen leaving. [duringSwing] says whether anything moved
          * around then; if so, [frames] are the frames around it, for working out later what went wrong.
+         * [tooSoon] says listening had only just started, too late to have seen the ball sitting still first.
          */
-        class Missed(val impactNs: Long, val duringSwing: Boolean, val frames: List<LumaFrame>) : Event
+        class Missed(val impactNs: Long, val duringSwing: Boolean, val frames: List<LumaFrame>, val tooSoon: Boolean = false) : Event
     }
 
-    private class Buffered(val frame: LumaFrame, val thumb: LumaFrame, val motion: Float)
+    /**
+     * A frame kept while listening, with where the camera pointed: content at (x, y) when listening began
+     * is at (x + [ox], y + [oy]) here.
+     */
+    private class Buffered(val frame: LumaFrame, val thumb: LumaFrame, val motion: Float, val prepared: FrameShift.Prepared, val ox: Int, val oy: Int)
 
     private class Capture(
         val session: ShotCaptureSession,
@@ -62,6 +67,9 @@ class ShotTrigger(
     @Volatile
     var lastActivityNs = 0L
         private set
+
+    /** Whether a shot is being captured now. */
+    val isCapturing: Boolean get() = capture != null
 
     private var listening = false
     private var listenSinceNs = Long.MAX_VALUE
@@ -111,9 +119,13 @@ class ShotTrigger(
         if (listenSinceNs == Long.MAX_VALUE) listenSinceNs = frame.timestampNs
 
         val thumb = Thumbnails.of(frame)
-        val motion = buffer.lastOrNull()?.let { Thumbnails.motion(it.thumb, thumb) } ?: 0f
         if (buffer.isNotEmpty() && (buffer.last().frame.width != frame.width || buffer.last().frame.height != frame.height)) buffer.clear()
-        buffer.addLast(Buffered(frame, thumb, motion))
+        val prev = buffer.lastOrNull()
+        val motion = prev?.let { Thumbnails.motion(it.thumb, thumb) } ?: 0f
+        // Follow the camera frame by frame, so frames far apart can be lined up even if the phone panned.
+        val prepared = FrameShift.Prepared(frame)
+        val (sx, sy) = prev?.let { FrameShift.estimate(it.prepared, prepared) } ?: (0 to 0)
+        buffer.addLast(Buffered(frame, thumb, motion, prepared, (prev?.ox ?: 0) + sx, (prev?.oy ?: 0) + sy))
         while (buffer.first().frame.timestampNs < frame.timestampNs - BUFFER_NS) buffer.removeFirst()
         if (motion >= swingMotion()) lastActivityNs = frame.timestampNs
 
@@ -123,14 +135,18 @@ class ShotTrigger(
             val t = sounds.removeFirst()
             if (t < listenSinceNs) continue
             val frames = buffer.map { it.frame }
+            val offsets = offsets()
             // The sound's clock and the camera's may disagree a little; look either side if need be.
-            val found = listOf(0L, CLOCK_SLACK_NS, -CLOCK_SLACK_NS).firstNotNullOfOrNull { ImpactBallLocator.locate(frames, t + it, heardNs = t) }
+            val found = listOf(0L, CLOCK_SLACK_NS, -CLOCK_SLACK_NS).firstNotNullOfOrNull { ImpactBallLocator.locate(frames, t + it, heardNs = t, offsets = offsets) }
+                // A phone moving in the hand may only line up over the moments either side of the strike.
+                ?: ImpactBallLocator.locate(frames, t, heardNs = t, offsets = offsets, short = true)
             if (found != null) {
                 start(found, t, heard = true)
                 return
             }
             val swing = swingAround(t)
-            onEvent(Event.Missed(t, swing, if (swing) frames else emptyList()))
+            val tooSoon = t - listenSinceNs < secondsNs(ImpactBallLocator.FEED_BEFORE_S)
+            onEvent(Event.Missed(t, swing, if (swing) frames else emptyList(), tooSoon))
         }
 
         // Without a microphone, every so often a look for a strike during a burst of motion.
@@ -139,16 +155,19 @@ class ShotTrigger(
             val t = frame.timestampNs - secondsNs(ImpactBallLocator.NEEDS_AFTER_S + 0.05)
             val heardSoon = sounds.any { it in t - LOOK_INTERVAL_NS * 2..frame.timestampNs + LOOK_INTERVAL_NS }
             if (!heardSoon && t - secondsNs(ImpactBallLocator.FEED_BEFORE_S) >= listenSinceNs && swingAround(t)) {
-                ImpactBallLocator.locate(buffer.map { it.frame }, t)?.let { start(it, it.vanishedNs, heard = false) }
+                ImpactBallLocator.locate(buffer.map { it.frame }, t, offsets = offsets())?.let { start(it, it.vanishedNs, heard = false) }
             }
         }
     }
 
+    private fun offsets() = ImpactBallLocator.Offsets(IntArray(buffer.size) { buffer[it].ox }, IntArray(buffer.size) { buffer[it].oy })
+
     private fun start(found: ImpactBallLocator.Found, impactNs: Long, heard: Boolean) {
         val frames = buffer.toList()
-        val ref = frames[found.referenceIndex].frame
-        val latest = frames.last().frame
-        val (sx, sy) = FrameShift.estimate(ref, latest)
+        val first = frames[found.referenceIndex]
+        val ref = first.frame
+        val latest = frames.last()
+        val (sx, sy) = FrameShift.estimate(first.prepared, latest.prepared, latest.ox - first.ox, latest.oy - first.oy)
         val session = ShotCaptureSession(keepFrames = keepFrames)
         session.arm(found.ball.x, found.ball.y, found.ball, launchHintNs = if (heard) impactNs else found.vanishedNs)
         val c = Capture(session, impactNs, heard, impactNs + secondsNs(captureSeconds), found.changed)
@@ -156,12 +175,16 @@ class ShotTrigger(
         buffer.clear()
         sounds.clear()
         onEvent(Event.Started(found.ball, impactNs, heard, sx.toFloat() / ref.width, sy.toFloat() / ref.height))
-        for (i in found.referenceIndex until frames.size) feed(c, frames[i].frame, frames[i].thumb)
-        if (latest.timestampNs >= c.endNs) finish()
+        for (i in found.referenceIndex until frames.size) {
+            val b = frames[i]
+            val shift = if (i > found.referenceIndex) (b.ox - frames[i - 1].ox) to (b.oy - frames[i - 1].oy) else null
+            feed(c, b.frame, b.thumb, shift)
+        }
+        if (latest.frame.timestampNs >= c.endNs) finish()
     }
 
-    private fun feed(c: Capture, frame: LumaFrame, thumb: LumaFrame) {
-        c.session.process(frame)
+    private fun feed(c: Capture, frame: LumaFrame, thumb: LumaFrame, shift: Pair<Int, Int>? = null) {
+        c.session.process(frame, shift)
         c.thumbs += thumb
     }
 

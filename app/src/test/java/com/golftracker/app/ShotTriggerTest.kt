@@ -67,14 +67,16 @@ class ShotTriggerTest {
      */
     private fun swing(
         seed: Int, ballFlies: Boolean = true, swings: Boolean = true, shake: Int = 0, frames: Int = 260,
-        radius: Float = ballRadius, whiteShoe: Boolean = false
+        radius: Float = ballRadius, whiteShoe: Boolean = false,
+        /** How far the phone has tilted by each frame, in pixels: a hand-held phone drifting through the swing. */
+        tilt: (Int) -> Int = { 0 }
     ): List<LumaFrame> {
         val scene = Scene(w, h, seed)
         val hand = Random(seed + 2)
         return List(frames) { f ->
             val t = (f - impactFrame) / 30.0
             val camX = if (shake == 0) 0 else hand.nextInt(-shake, shake + 1)
-            val camY = if (shake == 0) 0 else hand.nextInt(-shake, shake + 1)
+            val camY = (if (shake == 0) 0 else hand.nextInt(-shake, shake + 1)) + tilt(f)
             val data = scene.render(camX, camY) { px ->
                 // Swing from about a second before impact to half a second after.
                 val phase = if (!swings) 0.0 else ((f - (impactFrame - 30)) / 45.0).coerceIn(0.0, 1.0)
@@ -157,6 +159,23 @@ class ShotTriggerTest {
             assertEquals("seed $seed", 1, started.size)
             assertEquals("seed $seed: tee x", teeX, started.single().ball.x, 4f / w)
             assertEquals("seed $seed: tee y", teeY, started.single().ball.y, 4f / h)
+        }
+    }
+
+    @Test
+    fun ballIsFoundWhenThePhoneTiltsThroughTheSwing() {
+        // As in the backyard on 2026-10-23: the person filming tilted the phone about 50 px over the
+        // second before the strike, further than frames that far apart can be matched directly.
+        val tilt = { f: Int -> ((f - (impactFrame - 30)) * 2).coerceIn(0, 54) }
+        for (seed in 22..23) {
+            val events = run(swing(seed, tilt = tilt), impactNs)
+            val started = events.filterIsInstance<ShotTrigger.Event.Started>()
+            assertEquals("seed $seed", 1, started.size)
+            // Reported where the ball was in the first frame the capture was given, 0.85 s before the strike.
+            val first = events.filterIsInstance<ShotTrigger.Event.Captured>().single().shot.thumbnails.first().timestampNs
+            val atFirst = tilt(((first - startNs) / frameNs).toInt())
+            assertEquals("seed $seed: tee x", teeX, started.single().ball.x, 3f / w)
+            assertEquals("seed $seed: tee y", teeY + atFirst.toFloat() / h, started.single().ball.y, 3f / h)
         }
     }
 

@@ -73,8 +73,48 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
     /** What each baked snapshot shows, so later edits know whether to bake it again. */
     private val bakedLooks = HashMap<String, List<Any?>>()
 
+    // Shots still being worked on, and those of them the user has since thrown away.
+    private val running = HashSet<String>()
+    private val discarded = HashSet<String>()
+
     fun process(new: NewShot) {
-        scope.launch { run(new) }
+        val id = new.record.id
+        synchronized(running) { running += id }
+        scope.launch {
+            try {
+                run(new)
+            } finally {
+                val drop = synchronized(running) {
+                    running -= id
+                    discarded.remove(id)
+                }
+                if (drop) delete(id)
+            }
+        }
+    }
+
+    /**
+     * Throws a shot away with its recording and snapshot: one the user said wasn't worth keeping. A shot
+     * still being saved or re-traced is thrown away once that's done.
+     */
+    fun discard(shotId: String) {
+        val now = synchronized(running) {
+            if (shotId in running) {
+                discarded += shotId
+                false
+            } else {
+                true
+            }
+        }
+        if (now) scope.launch { delete(shotId) }
+    }
+
+    private fun isDiscarded(shotId: String) = synchronized(running) { shotId in discarded }
+
+    private suspend fun delete(shotId: String) {
+        repository.find(shotId)?.snapshotUri?.let { deleteImage(it) }
+        repository.deleteShot(shotId)
+        synchronized(bakedLooks) { bakedLooks.remove(shotId) }
     }
 
     private suspend fun run(new: NewShot) {
@@ -106,6 +146,8 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         )
         val debugExport = ShotDebugExporter.save(context, shot, liveTracer)
         _updates.emit(Update.Saved(id, debugExport, video != null))
+        // Thrown away already: no need to trace it again.
+        if (isDiscarded(id)) return
 
         // 3. Trace again from the video.
         var points = new.record.points
@@ -154,6 +196,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         }
 
         // 4. Bake the snapshot with the final tracer, unless the curve was tuned by hand meanwhile.
+        if (isDiscarded(id)) return
         val current = repository.find(id) ?: return
         val edited = current.points != new.record.points
         val final = if (edited) current else current.copy(points = points, tracedFrom = tracedFrom, tracerEstimated = estimated)

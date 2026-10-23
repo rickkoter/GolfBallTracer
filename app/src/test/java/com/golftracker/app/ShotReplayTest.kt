@@ -49,7 +49,7 @@ class ShotReplayTest {
     @Test
     fun replaySavedShots() {
         val dir = File(System.getenv("GOLF_SHOTS_DIR") ?: "shots")
-        val files = dir.listFiles { f -> f.name.endsWith(".zip") }?.sortedBy { it.name } ?: return
+        val files = dir.listFiles { f -> f.name.endsWith(".zip") && !f.name.startsWith("debug-session_") }?.sortedBy { it.name } ?: return
         for (file in files) {
             val archive = file.inputStream().use { ShotDebugArchive.read(it) }
             val info = archive.info

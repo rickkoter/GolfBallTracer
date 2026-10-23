@@ -22,11 +22,13 @@ internal object Thumbnails {
         val sums = IntArray(tw * th)
         val counts = IntArray(tw * th)
         val d = frame.data
+        val column = IntArray(w) { x -> (x * tw / w).coerceAtMost(tw - 1) }
         for (y in 0 until h) {
             val ty = (y * th / h).coerceAtMost(th - 1) * tw
+            val row = y * w
             for (x in 0 until w) {
-                val i = ty + (x * tw / w).coerceAtMost(tw - 1)
-                sums[i] += d[y * w + x].toInt() and 0xFF
+                val i = ty + column[x]
+                sums[i] += d[row + x].toInt() and 0xFF
                 counts[i]++
             }
         }

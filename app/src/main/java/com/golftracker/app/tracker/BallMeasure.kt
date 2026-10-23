@@ -41,12 +41,14 @@ internal object BallMeasure {
 
         // Background: median over a wide area, which even a ball close to the camera only partly covers.
         val bgReach = max(8, (long * 0.2f).roundToInt())
-        val samples = ArrayList<Int>()
+        val histogram = IntArray(256)
+        var samples = 0
         for (y in max(0, seedY - bgReach)..min(h - 1, seedY + bgReach) step 3) {
-            for (x in max(0, seedX - bgReach)..min(w - 1, seedX + bgReach) step 3) samples.add(frame.lum(x, y))
+            for (x in max(0, seedX - bgReach)..min(w - 1, seedX + bgReach) step 3) { histogram[frame.lum(x, y)]++; samples++ }
         }
-        samples.sort()
-        val background = samples[samples.size / 2]
+        var background = 0
+        var seen = histogram[0]
+        while (seen <= samples / 2) seen += histogram[++background]
         val peak = frame.lum(seedX, seedY)
         if (peak - background < 25) return null
 
@@ -205,14 +207,21 @@ internal object BallMeasure {
      * The circle through the most of the given edge points, refined by least squares on those points,
      * as [centerX, centerY, radius]. It must contain [insideX], [insideY] (the ball the user tapped).
      */
-    private fun fitCircle(xs: List<Float>, ys: List<Float>, insideX: Float, insideY: Float, maxRadius: Float): FloatArray? {
-        val n = xs.size
+    private fun fitCircle(xList: List<Float>, yList: List<Float>, insideX: Float, insideY: Float, maxRadius: Float): FloatArray? {
+        val n = xList.size
         if (n < 5) return null
-        fun inliers(cx: Float, cy: Float, r: Float): List<Int> {
-            val tol = max(1.5f, 0.12f * r)
-            return (0 until n).filter { abs(sqrt((xs[it] - cx) * (xs[it] - cx) + (ys[it] - cy) * (ys[it] - cy)) - r) <= tol }
+        // Plain arrays: this runs for every triple of points, thousands of times per ball.
+        val xs = xList.toFloatArray()
+        val ys = yList.toFloatArray()
+        fun isInlier(i: Int, cx: Float, cy: Float, r: Float, tol: Float): Boolean {
+            val dx = xs[i] - cx
+            val dy = ys[i] - cy
+            return abs(sqrt(dx * dx + dy * dy) - r) <= tol
         }
-        var best: List<Int> = emptyList()
+        var bestCount = 0
+        var bestX = 0f
+        var bestY = 0f
+        var bestR = 0f
         for (i in 0 until n) for (j in i + 1 until n) for (k in j + 1 until n) {
             // Circumcircle of three points.
             val ax = xs[i]; val ay = ys[i]; val bx = xs[j]; val by = ys[j]; val cx = xs[k]; val cy = ys[k]
@@ -224,10 +233,25 @@ internal object BallMeasure {
             val r = sqrt((ax - ox) * (ax - ox) + (ay - oy) * (ay - oy))
             if (r < 1f || r > maxRadius) continue
             if ((insideX - ox) * (insideX - ox) + (insideY - oy) * (insideY - oy) > r * r) continue
-            val these = inliers(ox, oy, r)
-            if (these.size > best.size) best = these
+            // Inliers are within tol of the circle: compared squared, and given up on as soon as this
+            // circle can no longer beat the best so far.
+            val tol = max(1.5f, 0.12f * r)
+            val lo = if (r > tol) (r - tol) * (r - tol) else 0f
+            val hi = (r + tol) * (r + tol)
+            val allowedMisses = n - bestCount
+            var count = 0
+            var misses = 0
+            for (q in 0 until n) {
+                val dx = xs[q] - ox
+                val dy = ys[q] - oy
+                val d2 = dx * dx + dy * dy
+                if (d2 in lo..hi) count++ else if (++misses >= allowedMisses) break
+            }
+            if (count > bestCount) { bestCount = count; bestX = ox; bestY = oy; bestR = r }
         }
-        if (best.size < 5) return null
+        if (bestCount < 5) return null
+        val bestTol = max(1.5f, 0.12f * bestR)
+        val best = (0 until n).filter { isInlier(it, bestX, bestY, bestR, bestTol) }
 
         // Least squares (Kasa): x² + y² + D·x + E·y + F = 0 over the inliers.
         val m = Array(3) { DoubleArray(4) }

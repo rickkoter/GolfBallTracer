@@ -121,17 +121,26 @@ class DebugSessionReplayTest {
             trigger.startListening()
             val pending = ArrayDeque(onsets.sorted())
             var lastFrameNs = 0L
+            // How long the detector takes per frame, while listening and while capturing a shot: on the
+            // phone it has about 33 ms, and falls behind the camera if it takes longer.
+            val listenMs = ArrayList<Double>()
+            val captureMs = ArrayList<Double>()
             file.inputStream().use { input ->
                 DebugSession.read(input) { frame ->
                     // A strike reaches the detector a little after it happened, as on the phone.
                     while (pending.isNotEmpty() && frame.timestampNs >= pending.first() + 20_000_000L) trigger.onImpactSound(pending.removeFirst())
+                    val capturing = trigger.isCapturing
+                    val t0 = System.nanoTime()
                     trigger.onFrame(frame)
+                    (if (capturing) captureMs else listenMs) += (System.nanoTime() - t0) / 1e6
                     lastFrameNs = frame.timestampNs
                     // Captures end on their own; listen again straight away, as the app does.
                     if (!trigger.wantsFrames) trigger.startListening()
                 }
             }
             trigger.finishCapture()
+            fun List<Double>.summary() = if (isEmpty()) "-" else "mean %.1f ms, max %.0f ms over %d frames".format(average(), max(), size)
+            println("  Detector time per frame on this machine: listening ${listenMs.summary()}; capturing ${captureMs.summary()}")
             println("  Shot detection now:")
             if (events.isEmpty()) println("    nothing")
             for (e in events) when (e) {

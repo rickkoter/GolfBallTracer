@@ -44,6 +44,7 @@ import com.golftracker.app.tracker.BallTrackerAnalyzer
 import com.golftracker.app.tracker.CapturedShot
 import com.golftracker.app.tracker.ImpactSoundDetector
 import com.golftracker.app.tracker.LaunchPhysics
+import com.golftracker.app.tracker.RecordingCoverage
 import com.golftracker.app.tracker.ShotTrigger
 import com.golftracker.app.tracker.TrajectoryMath
 import com.golftracker.app.ui.components.BallLocatorDialog
@@ -53,7 +54,6 @@ import com.golftracker.app.ui.components.ShotTelemetryHUD
 import com.golftracker.app.ui.theme.*
 import com.golftracker.app.video.ShotVideoRecorder
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -61,6 +61,12 @@ import kotlinx.coroutines.withContext
 
 /** What the tracker is doing: waiting for a shot (showing the last one, if any), capturing one, or working it out. */
 private enum class Phase { LISTENING, CAPTURING, ANALYZING }
+
+/**
+ * A saved shot whose ball flight can't be trusted: part of it wasn't recorded ([reasons]), or no flight
+ * was found at all. The user is asked whether to keep it.
+ */
+private class UncertainShot(val id: String, val reasons: List<String>, val noFlight: Boolean)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +126,13 @@ fun TrackerScreen(
     var showClubSheet by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showLimitPrompt by remember { mutableStateOf(false) }
+    var uncertainShot by remember { mutableStateOf<UncertainShot?>(null) }
+    // Bumped by every reset, so a shot still being worked out when the user starts over isn't shown after.
+    var resetCount by remember { mutableIntStateOf(0) }
+    // When the last reset was, on the frames' clock: anything the detector reports from before it is stale.
+    var resetAtNs by remember { mutableLongStateOf(0L) }
+    // How far behind the camera the shot detector is running, in seconds.
+    var detectorLagS by remember { mutableFloatStateOf(0f) }
 
     val currentLocation by locationManager.currentLocation.collectAsState()
     val gpsLaunch by locationManager.launchLocation.collectAsState()
@@ -256,22 +269,60 @@ fun TrackerScreen(
         locatorProblem = null
     }
 
-    // Back to the live camera; a shot being captured is abandoned.
+    /**
+     * Starts listening for the next shot from scratch, whatever was going on: the shot on screen is
+     * cleared, one being captured or worked out is let go, notes are cleared, a pause ends, and frames
+     * the detector hadn't got to yet are skipped so it listens to what the camera sees now.
+     */
     fun resetShot() {
+        resetCount++
         clearShot()
-        if (phase == Phase.CAPTURING) {
-            if (isDebugRecording) {
-                // Keep the debug recording's video running.
-                detector.stopListening()
-                detector.startListening()
-                phase = Phase.LISTENING
-            } else {
+        strikeNote = null
+        if (!isSavingDebug) debugNote = null
+        val wasCapturing = phase == Phase.CAPTURING
+        phase = Phase.LISTENING
+        isPaused = false
+        resetAtNs = SystemClock.elapsedRealtimeNanos()
+        debugRecorder.log("reset", if (wasCapturing) "abandoned the shot being captured" else "")
+        when {
+            // The debug recording's video keeps running.
+            isDebugRecording -> {
+                detector.restart()
+                isListening = true
+            }
+            atRecordingLimit() -> {
                 stopListening()
+                showLimitPrompt = true
+            }
+            else -> {
+                detector.restart()
+                // A video holding an abandoned shot is started afresh.
+                if (wasCapturing) recorder.discard()
                 startListening()
             }
         }
     }
 
+    // Keep an eye on whether the shot detector keeps up with the camera.
+    LaunchedEffect(Unit) {
+        var wasBehind = false
+        var capturingSinceMs = 0L
+        while (true) {
+            detectorLagS = detector.lagNs / 1e9f
+            val behind = detectorLagS > LAG_WORTH_SHOWING_S
+            if (behind && !wasBehind) debugRecorder.log("detector-behind", "%.1f s, %d frames waiting".format(detectorLagS, detector.queuedFrames))
+            wasBehind = behind
+            // A capture lasts a few seconds; one that never ends would leave the screen stuck, so start over.
+            val now = SystemClock.elapsedRealtime()
+            if (phase != Phase.CAPTURING) capturingSinceMs = 0L
+            else if (capturingSinceMs == 0L) capturingSinceMs = now
+            else if (now - capturingSinceMs > STUCK_CAPTURE_MS && !behind) {
+                debugRecorder.log("stuck-capture", "no end after %d s".format((now - capturingSinceMs) / 1000))
+                resetShot()
+            }
+            delay(500)
+        }
+    }
     // Where the ball came down, worked out from its launch on camera, for the ball locator.
     fun estimateLanding(fitted: BallFlightFitter.Flight?, ballRadius: Float?) {
         ballLanding = null
@@ -304,26 +355,55 @@ fun TrackerScreen(
     // Finds the ball's flight among everything that moved, then saves the shot with its recording.
     suspend fun analyzeCapturedShot(shot: CapturedShot) {
         phase = Phase.ANALYZING
-        val clip = scope.async { recorder.stop() }
+        val generation = resetCount
+        // What the shot is drawn over, kept here in case the screen is reset meanwhile.
+        val still = shotStill
+        val (shiftX, shiftY) = stillShift
+        fun List<ScreenPoint>.onStill() = map { it.copy(x = it.x + shiftX, y = it.y + shiftY) }
+        // The video first, then straight back to listening and recording, so the next shot's video starts
+        // now rather than once this one has been worked out.
+        val video = recorder.stop()
+        val videoExpected = isVideoAvailable == true
+        pendingSaves++
+        startListening()
         val camera = cameraPose()
         val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitBest(shot, camera) }
-        val video = clip.await()
 
         if (fitted == null && !shot.heardImpact) {
             // Something bright went from a still spot during some movement, but nothing was heard and
             // nothing flew: not a shot. Carry on listening.
+            pendingSaves = (pendingSaves - 1).coerceAtLeast(0)
             video?.file?.delete()
-            clearShot()
-            phase = Phase.LISTENING
-            shotStats = "Saw movement but no ball flight • still listening"
-            startListening()
+            if (generation == resetCount) {
+                clearShot()
+                phase = Phase.LISTENING
+                shotStats = "Saw movement but no ball flight • still listening"
+            }
             return
         }
+        val impactNs = shot.impactTimestampNs ?: shot.launchTimestampNs
+        val problems = RecordingCoverage.problems(impactNs, shot.thumbnails.map { it.timestampNs }, video?.startNs, videoExpected)
+        debugRecorder.log("shot-coverage", problems.joinToString("; ").ifEmpty { "complete" }, impactNs ?: 0L)
 
-        val flight = fitted?.tracer ?: emptyList()
-        detectedPoints = flight.shiftedToStill()
+        val points = (fitted?.tracer ?: emptyList()).onStill()
+        val record = ShotRecord(
+            club = selectedClub,
+            tracerStyle = selectedTracerStyle.name,
+            launchLocation = gpsLaunch,
+            landingLocation = gpsLanding,
+            distanceYards = distanceYards,
+            distanceMeters = distanceMeters,
+            points = points,
+            tracerEstimated = fitted?.estimated ?: false
+        )
+        processor.process(ShotProcessor.NewShot(record, shot, fitted, video, still, shiftX to shiftY, camera))
+        if (problems.isNotEmpty() || fitted == null) uncertainShot = UncertainShot(record.id, problems, fitted == null)
+        // Started over meanwhile: the shot is saved, but the screen stays as the user left it.
+        if (generation != resetCount) return
+
+        detectedPoints = points
         estimateLanding(fitted, shot.ballRadius)
-        isBallFlightMissing = flight.isEmpty()
+        isBallFlightMissing = points.isEmpty()
         launchSeen = shot.launchTimestampNs != null
         val frames = shot.thumbnails
         val seconds = if (frames.size > 1) (frames.last().timestampNs - frames.first().timestampNs) / 1e9 else 0.0
@@ -333,27 +413,12 @@ fun TrackerScreen(
             if (shot.heardImpact) "heard" else "seen",
             if (shot.launchTimestampNs != null) "✓" else "✗"
         ) + if (fitted?.estimated == true) "\nBall seen for %.2f s: the dashed part of the tracer is estimated".format(fitted.trackedSeconds) else ""
-        detectedSpots = shot.candidates.map { ScreenPoint(it.x, it.y, it.timestampNs / 1_000_000L) }.shiftedToStill()
-
-        val record = ShotRecord(
-            club = selectedClub,
-            tracerStyle = selectedTracerStyle.name,
-            launchLocation = gpsLaunch,
-            landingLocation = gpsLanding,
-            distanceYards = distanceYards,
-            distanceMeters = distanceMeters,
-            points = detectedPoints,
-            tracerEstimated = fitted?.estimated ?: false
-        )
+        detectedSpots = shot.candidates.map { ScreenPoint(it.x, it.y, it.timestampNs / 1_000_000L) }.onStill()
         currentShotId = record.id
-        pendingSaves++
         saveNote = "Saving recording…"
         isRetracing = video != null
         videoNote = if (video != null) "Tracing again from the full video…" else "No video for this shot"
-        processor.process(ShotProcessor.NewShot(record, shot, fitted, video, shotStill, stillShift, camera))
-
         phase = Phase.LISTENING
-        startListening()
     }
 
     // In a debug recording a shot is only noted, not saved, and the video keeps running.
@@ -377,6 +442,7 @@ fun TrackerScreen(
         if (isDebugRecording || isSavingDebug) return
         if (!micPermission) micPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
         detector.stopListening()
+        resetAtNs = SystemClock.elapsedRealtimeNanos()
         clearShot()
         phase = Phase.LISTENING
         isPaused = false
@@ -401,6 +467,12 @@ fun TrackerScreen(
         if (!isDebugRecording) return
         isDebugRecording = false
         isSavingDebug = true
+        // A shot being followed now belongs to the debug recording, which is ending: let it go.
+        resetAtNs = SystemClock.elapsedRealtimeNanos()
+        if (phase == Phase.CAPTURING) {
+            clearShot()
+            phase = Phase.LISTENING
+        }
         impactSound.audioTap = null
         withContext(Dispatchers.IO) { debugRecorder.stop() }
         debugNote = "Saving debug recording…"
@@ -427,6 +499,9 @@ fun TrackerScreen(
     }
 
     suspend fun handle(event: ShotTrigger.Event) {
+        // Already on its way when the user started over.
+        if (event is ShotTrigger.Event.Started && event.impactNs < resetAtNs) return
+        if (event is ShotTrigger.Event.Missed && event.impactNs < resetAtNs) return
         when (event) {
             is ShotTrigger.Event.Started -> {
                 debugRecorder.log(
@@ -450,7 +525,9 @@ fun TrackerScreen(
                 debugRecorder.log("strike-missed", if (event.duringSwing) "during a swing, no ball seen leaving" else "no swing seen", event.impactNs)
                 val loud = impactSound.lastStrikeDb?.let { " (+%.0f dB)".format(it) } ?: ""
                 val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-                strikeNote = if (event.duringSwing) {
+                strikeNote = if (event.tooSoon) {
+                    "🔊 $time heard a strike$loud just as listening started • too soon to see the ball"
+                } else if (event.duringSwing) {
                     "🔊 $time heard a strike$loud during a swing • no ball seen leaving"
                 } else {
                     "🔊 $time heard a sharp sound$loud • no swing seen"
@@ -672,7 +749,7 @@ fun TrackerScreen(
                                         debugSeconds / 60, debugSeconds % 60, DebugSessionRecorder.MAX_SECONDS
                                     )
                                 phase == Phase.ANALYZING -> "⏳ Finding ball flight…"
-                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands"
+                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands, ↻ to drop it"
                                 isPaused -> "⏸ Paused • Tap ▶ below to listen for shots"
                                 limitReached -> "⚠️ ${ShotRepository.MAX_RECORDINGS} shot recordings stored • Tap here to free up space"
                                 showingShot && isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave • Listening for the next shot"
@@ -693,6 +770,7 @@ fun TrackerScreen(
                                 else -> "couldn't open"
                             }
                             listOfNotNull(
+                                if (detectorLagS > LAG_WORTH_SHOWING_S) "⏳ Shot detection is %.1f s behind the camera • catching up".format(detectorLagS) else null,
                                 shotStats, saveNote, videoNote,
                                 if (!showingShot) "🎤 Mic $mic • 🎥 Video ${
                                     when (isVideoAvailable) { true -> "on"; false -> "not available"; null -> "starting" }
@@ -716,17 +794,25 @@ fun TrackerScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
+            // Starting over: always there, and spelled out, since it's what to reach for whenever the
+            // screen isn't simply listening (a shot showing or being followed, a pause, a note).
+            val cleanlyListening = isListening && !isPaused && phase == Phase.LISTENING && !showingShot && strikeNote == null
+            Button(
                 onClick = {
                     resetShot()
                     locationManager.reset()
                 },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(GolfDarkCard.copy(alpha = 0.85f))
+                shape = RoundedCornerShape(22.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (cleanlyListening) GolfDarkCard.copy(alpha = 0.85f) else GolfNeonCyan
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                modifier = Modifier.height(44.dp)
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Reset Shot", tint = Color.White)
+                val tint = if (cleanlyListening) Color.White else GolfDarkBg
+                Icon(Icons.Default.Refresh, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (cleanlyListening) "Reset" else "Listen again", color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
             IconButton(
                 onClick = {
@@ -865,6 +951,46 @@ fun TrackerScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showLimitPrompt = false }) { Text("Not now", color = Color.White) }
+            }
+        )
+    }
+
+    // A shot whose flight can't be trusted: keep it or throw it away.
+    uncertainShot?.let { uncertain ->
+        AlertDialog(
+            onDismissRequest = { uncertainShot = null },
+            containerColor = GolfDarkCard,
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = GolfNeonGold) },
+            title = {
+                Text(
+                    if (uncertain.reasons.isNotEmpty()) "Part of this shot wasn't recorded" else "No ball flight found",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (uncertain.reasons.isNotEmpty()) {
+                        Text(
+                            if (uncertain.noFlight) "No ball flight was found, and it may be because:" else "The ball flight drawn may be wrong or cut short:",
+                            color = GolfTextSecondary
+                        )
+                        uncertain.reasons.forEach { Text("• $it", color = Color.White, fontSize = 13.sp) }
+                    } else {
+                        Text("A strike was heard and a ball went, but it wasn't seen flying. It may not have been a shot.", color = GolfTextSecondary)
+                    }
+                    Text("Keep this shot in your history?", color = GolfTextSecondary)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { uncertainShot = null }) { Text("Keep", color = GolfNeonLime) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    processor.discard(uncertain.id)
+                    if (currentShotId == uncertain.id) clearShot()
+                    uncertainShot = null
+                }) { Text("Discard", color = Color.White) }
             }
         )
     }
@@ -1037,6 +1163,11 @@ private fun SettingSwitch(
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+/** The shot detector being further behind the camera than this is worth telling the user. */
+private const val LAG_WORTH_SHOWING_S = 1.5f
+/** A capture still going after this long, with the detector keeping up, has lost its way. */
+private const val STUCK_CAPTURE_MS = 20_000L
 
 /** A recording longer than this with nothing going on is started afresh. */
 private const val MAX_IDLE_RECORDING_NS = 60_000_000_000L

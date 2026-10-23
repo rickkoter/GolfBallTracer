@@ -100,7 +100,11 @@ class ShotCaptureSession(
     private var gridHeight = 1
 
     /** A frame and how far the camera had moved by then since recording started, in grid cells. */
-    private class Tracked(val frame: LumaFrame, val ox: Int, val oy: Int) {
+    private class Tracked(
+        val frame: LumaFrame, val ox: Int, val oy: Int,
+        /** Working space, and arrays from a frame no longer needed to fill in, to save allocating them per frame. */
+        rowLo: IntArray, rowHi: IntArray, reuseLo: ByteArray?, reuseHi: ByteArray?
+    ) {
         /**
          * Darkest and brightest value within ±1 pixel of each pixel. Comparing against this range
          * instead of the single pixel ignores sharp edges wobbling by a pixel, which stabilization
@@ -112,8 +116,6 @@ class ShotCaptureSession(
             val w = frame.width
             val h = frame.height
             val d = frame.data
-            val rowLo = IntArray(w * h)
-            val rowHi = IntArray(w * h)
             for (y in 0 until h) for (x in 0 until w) {
                 val i = y * w + x
                 var mn = d[i].toInt() and 0xFF
@@ -123,8 +125,8 @@ class ShotCaptureSession(
                 rowLo[i] = mn
                 rowHi[i] = mx
             }
-            lo = ByteArray(w * h)
-            hi = ByteArray(w * h)
+            lo = reuseLo?.takeIf { it.size == w * h } ?: ByteArray(w * h)
+            hi = reuseHi?.takeIf { it.size == w * h } ?: ByteArray(w * h)
             for (y in 0 until h) for (x in 0 until w) {
                 val i = y * w + x
                 var mn = rowLo[i]
@@ -223,7 +225,23 @@ class ShotCaptureSession(
         launch.reset()
     }
 
-    fun process(frame: LumaFrame) = synchronized(lock) {
+    // Working arrays kept between frames: allocating them anew for every frame keeps the phone's
+    // garbage collector busy enough to slow the detector down.
+    private var rowLo = IntArray(0)
+    private var rowHi = IntArray(0)
+    private var mask = BooleanArray(0)
+    private var strength = IntArray(0)
+    private var visited = BooleanArray(0)
+    private var sat = IntArray(0)
+    private var stack = IntArray(0)
+    private var spareLo: ByteArray? = null
+    private var spareHi: ByteArray? = null
+
+    /**
+     * Takes the next frame. [shift] is how far the camera moved since the frame before, if already known
+     * (content at (x, y) there is at (x + first, y + second) here); otherwise it's worked out.
+     */
+    fun process(frame: LumaFrame, shift: Pair<Int, Int>? = null) = synchronized(lock) {
         if (!armed) return
         aspect = frame.width.toFloat() / frame.height
         gridHeight = frame.height
@@ -257,7 +275,7 @@ class ShotCaptureSession(
         }
         // Follow camera shake so the scene can be compared like-for-like between frames.
         history.lastOrNull()?.let { prev ->
-            val (sx, sy) = FrameShift.estimate(prev.frame, frame)
+            val (sx, sy) = shift ?: FrameShift.estimate(prev.frame, frame)
             cameraX += sx
             cameraY += sy
         }
@@ -269,8 +287,12 @@ class ShotCaptureSession(
         val isLaunched = launch.launchTimestampNs != null
         if (isLaunched != wasLaunched) onLaunchDetected(isLaunched)
 
-        history.addLast(Tracked(frame, cameraX, cameraY))
-        if (history.size > 2 * far + 1) history.removeFirst()
+        val size = frame.width * frame.height
+        if (rowLo.size != size) { rowLo = IntArray(size); rowHi = IntArray(size) }
+        history.addLast(Tracked(frame, cameraX, cameraY, rowLo, rowHi, spareLo, spareHi))
+        spareLo = null
+        spareHi = null
+        if (history.size > 2 * far + 1) history.removeFirst().let { spareLo = it.lo; spareHi = it.hi }
         if (history.size == 2 * far + 1 && candidates.size < MAX_BUFFERED_CANDIDATES) {
             candidates.addAll(detectMovingBlobs(history))
         }
@@ -313,19 +335,32 @@ class ShotCaptureSession(
         val farA = Ref(frames[0])
         val farC = Ref(frames[2 * far])
 
-        val mask = BooleanArray(size)
-        val strength = IntArray(size)
+        if (mask.size != size) {
+            mask = BooleanArray(size)
+            strength = IntArray(size)
+            visited = BooleanArray(size)
+            stack = IntArray(size)
+            sat = IntArray((w + 1) * (h + 1))
+        }
+        val mask = mask
+        val strength = strength
         var moving = 0
         for (y in 0 until h) for (x in 0 until w) {
             val i = y * w + x
             val lb = bd[i].toInt() and 0xFF
-            val near = min(nearA.diff(x, y, lb), nearC.diff(x, y, lb))
-            val far = min(farA.diff(x, y, lb), farC.diff(x, y, lb))
-            val d = max(near, far)
+            // Moving if it differs from both near neighbours, or from both far ones. Most pixels match
+            // the first neighbour looked at, so the other needn't be.
+            var d = 0
+            val na = nearA.diff(x, y, lb)
+            if (na > DIFF_THRESHOLD) d = min(na, nearC.diff(x, y, lb))
+            val fa = farA.diff(x, y, lb)
+            if (fa > DIFF_THRESHOLD) d = max(d, min(fa, farC.diff(x, y, lb)))
             if (d > DIFF_THRESHOLD) {
                 mask[i] = true
                 strength[i] = d
                 moving++
+            } else {
+                mask[i] = false
             }
         }
         if (moving == 0) return emptyList()
@@ -333,7 +368,7 @@ class ShotCaptureSession(
         if (moving > size / 4) return emptyList()
 
         // Summed-area table of the mask so each blob's surroundings can be checked in O(1).
-        val sat = IntArray((w + 1) * (h + 1))
+        val sat = sat
         for (y in 0 until h) {
             var rowSum = 0
             for (x in 0 until w) {
@@ -353,8 +388,9 @@ class ShotCaptureSession(
         val maxDim = max(8f, max(4f * ballDiameter, max(w, h) * 0.04f))
         val maxThickness = max(2f, 1.5f * ballDiameter)
 
-        val visited = BooleanArray(size)
-        val stack = IntArray(moving)
+        val visited = visited
+        java.util.Arrays.fill(visited, false)
+        val stack = stack
         val found = ArrayList<BallCandidate>()
         for (start in 0 until size) {
             if (!mask[start] || visited[start]) continue
