@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.model.distance
 import com.golftracker.app.model.isPixelTracer
 import com.golftracker.app.model.tracerRuns
 import com.golftracker.app.model.TracerStyle
@@ -165,7 +166,7 @@ object SnapshotExporter {
         canvas.drawText("⚡ GolfBallTracer", cardLeft + 24f, textY, titlePaint)
 
         textY += (cardHeight * 0.35f)
-        val distString = "%.0f YDS".format(shot.distanceYards)
+        val distString = shot.distance?.label ?: "— YDS"
         canvas.drawText(distString, cardLeft + 24f, textY, distPaint)
 
         textY += (cardHeight * 0.22f)

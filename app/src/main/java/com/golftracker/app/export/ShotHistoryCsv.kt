@@ -1,6 +1,7 @@
 package com.golftracker.app.export
 
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.model.distance
 import com.golftracker.app.model.TracerStyle
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -11,7 +12,7 @@ import java.util.TimeZone
 object ShotHistoryCsv {
 
     private val HEADER = listOf(
-        "Date", "Time", "Golfer", "Club", "Distance (yd)", "Distance (m)",
+        "Date", "Time", "Golfer", "Club", "Distance (yd)", "Distance from",
         "Tee latitude", "Tee longitude", "Landing latitude", "Landing longitude",
         "Tracer style", "Notes", "Shot ID"
     )
@@ -26,8 +27,8 @@ object ShotHistoryCsv {
                 time.format(at),
                 shot.golfer?.toString() ?: "",
                 shot.club,
-                if (shot.distanceYards > 0) "%.1f".format(Locale.US, shot.distanceYards) else "",
-                if (shot.distanceMeters > 0) "%.1f".format(Locale.US, shot.distanceMeters) else "",
+                shot.distance?.let { "%.1f".format(Locale.US, it.yards) } ?: "",
+                shot.distance?.let { if (it.estimated) "Estimate" else "GPS" } ?: "",
                 shot.launchLocation?.latitude?.let { "%.6f".format(Locale.US, it) } ?: "",
                 shot.launchLocation?.longitude?.let { "%.6f".format(Locale.US, it) } ?: "",
                 shot.landingLocation?.latitude?.let { "%.6f".format(Locale.US, it) } ?: "",

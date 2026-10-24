@@ -186,6 +186,10 @@ fun TrackerScreen(
     var isSavingDebug by remember { mutableStateOf(false) }
     var debugSeconds by remember { mutableIntStateOf(0) }
     var debugNote by remember { mutableStateOf<String?>(null) }
+    // An optional note in a debug recording, about the shot just captured or the moment it was started.
+    var debugNoteText by remember { mutableStateOf("") }
+    var debugNoteAtNs by remember { mutableStateOf<Long?>(null) }
+    var isWritingDebugNote by remember { mutableStateOf(false) }
     val impactSound = remember {
         ImpactSoundDetector(context) { t, db ->
             detector.onImpactSound(t)
@@ -374,6 +378,13 @@ fun TrackerScreen(
         return LaunchPhysics.CameraPose(fov, rotation)
     }
 
+    /** After a shot: listening goes off (camera analysis, microphone and video) until Start listening. */
+    fun pauseAfterShot() {
+        isPaused = true
+        isListening = false
+        detector.stopListening()
+    }
+
     // Finds the ball's flight among everything that moved, then saves the shot with its recording.
     suspend fun analyzeCapturedShot(shot: CapturedShot) {
         phase = Phase.ANALYZING
@@ -382,12 +393,12 @@ fun TrackerScreen(
         val still = shotStill
         val (shiftX, shiftY) = stillShift
         fun List<ScreenPoint>.onStill() = map { it.copy(x = it.x + shiftX, y = it.y + shiftY) }
-        // The video first, then straight back to listening and recording, so the next shot's video starts
-        // now rather than once this one has been worked out.
+        // The video first. Listening then stays off until the golfer starts it again for the next shot, so
+        // there's time to look at this one and change the golfer or club.
         val video = recorder.stop()
         val videoExpected = isVideoAvailable == true
         pendingSaves++
-        startListening()
+        pauseAfterShot()
         val camera = cameraPose()
         val fitted = withContext(Dispatchers.Default) { BallFlightFitter.fitBest(shot, camera) }
 
@@ -400,6 +411,8 @@ fun TrackerScreen(
                 clearShot()
                 phase = Phase.LISTENING
                 shotStats = "Saw movement but no ball flight • still listening"
+                isPaused = false
+                startListening()
             }
             return
         }
@@ -414,8 +427,9 @@ fun TrackerScreen(
             tracerStyle = selectedTracerStyle.name,
             launchLocation = gpsLaunch,
             landingLocation = gpsLanding,
-            distanceYards = distanceYards,
-            distanceMeters = distanceMeters,
+            // Until the ball is pinned, the live distance is only how far the phone has moved.
+            distanceYards = if (gpsLanding != null) distanceYards else 0.0,
+            distanceMeters = if (gpsLanding != null) distanceMeters else 0.0,
             points = points,
             tracerEstimated = fitted?.estimated ?: false
         )
@@ -445,6 +459,25 @@ fun TrackerScreen(
     }
 
     // In a debug recording a shot is only noted, not saved, and the video keeps running.
+    /** Puts the note typed so far into the debug recording's log, at the shot or moment it's about. */
+    fun saveDebugNote() {
+        val text = debugNoteText.trim()
+        if (text.isNotEmpty() && isDebugRecording) {
+            debugRecorder.log("note", text, debugNoteAtNs ?: SystemClock.elapsedRealtimeNanos())
+            debugNote = "📝 Note saved: $text"
+        }
+        debugNoteText = ""
+        debugNoteAtNs = null
+        isWritingDebugNote = false
+    }
+
+    fun startDebugNote(atNs: Long) {
+        // A note half written about an earlier moment is kept before starting the next one.
+        if (debugNoteText.isNotBlank()) saveDebugNote()
+        debugNoteAtNs = atNs
+        isWritingDebugNote = true
+    }
+
     suspend fun noteDebugShot(shot: CapturedShot) {
         phase = Phase.ANALYZING
         val camera = cameraPose()
@@ -457,6 +490,8 @@ fun TrackerScreen(
         debugRecorder.log("shot-captured", detail)
         clearShot()
         shotStats = "Debug: shot found • $detail (not saved)"
+        // Offer a note about it, optional: it can be left empty.
+        startDebugNote(shot.impactTimestampNs ?: SystemClock.elapsedRealtimeNanos())
         phase = Phase.LISTENING
         detector.startListening()
     }
@@ -488,6 +523,8 @@ fun TrackerScreen(
 
     suspend fun stopDebugRecording() {
         if (!isDebugRecording) return
+        // A note being written is kept rather than lost with the recording.
+        if (debugNoteText.isNotBlank()) saveDebugNote() else isWritingDebugNote = false
         isDebugRecording = false
         isSavingDebug = true
         // A shot being followed now belongs to the debug recording, which is ending: let it go.
@@ -579,6 +616,14 @@ fun TrackerScreen(
         for (event in events) handle(event)
     }
 
+    // Pinning the ball's GPS while a shot is on screen gives that shot its measured distance, without
+    // having to open its review.
+    LaunchedEffect(gpsLanding, currentShotId) {
+        val id = currentShotId ?: return@LaunchedEffect
+        val ball = gpsLanding ?: return@LaunchedEffect
+        repository.update(id) { it.copy(landingLocation = ball, distanceYards = distanceYards, distanceMeters = distanceMeters) }
+    }
+
     // The background work on saved shots: tell the screen when the shot on it is saved or re-traced.
     LaunchedEffect(Unit) {
         processor.updates.collect { update ->
@@ -626,14 +671,13 @@ fun TrackerScreen(
             val saved = if (id != null) {
                 val base = repository.find(id) ?: return@launch
                 processor.saveEdits(
+                    // The club and golfer stay the shot's own: those chosen meanwhile are for the next shot.
                     base.copy(
-                        club = selectedClub,
-                        golfer = golfer,
                         tracerStyle = selectedTracerStyle.name,
                         launchLocation = gpsLaunch ?: base.launchLocation,
-                        landingLocation = gpsLanding,
-                        distanceYards = distanceYards,
-                        distanceMeters = distanceMeters,
+                        landingLocation = gpsLanding ?: base.landingLocation,
+                        distanceYards = if (gpsLanding != null) distanceYards else base.distanceYards,
+                        distanceMeters = if (gpsLanding != null) distanceMeters else base.distanceMeters,
                         points = detectedPoints
                     ),
                     shotStill
@@ -719,7 +763,6 @@ fun TrackerScreen(
             ) {
                 ShotTelemetryHUD(
                     distanceYards = distanceYards,
-                    distanceMeters = distanceMeters,
                     showShotDistance = isShotRevealed,
                     clubName = selectedClub,
                     golfer = golfer,
@@ -785,13 +828,18 @@ fun TrackerScreen(
                                         debugSeconds / 60, debugSeconds % 60, DebugSessionRecorder.MAX_SECONDS
                                     )
                                 phase == Phase.ANALYZING -> "⏳ Finding ball flight…"
-                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball • Tap screen when it lands"
+                                phase == Phase.CAPTURING -> "🔴 Shot detected! Following the ball…"
+                                showingShot -> {
+                                    val next = if (isPaused) "Start listening for the next shot" else "Listening for the next shot"
+                                    when {
+                                        isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave"
+                                        isBallFlightMissing -> "⚠️ Ball flight not found"
+                                        detectedPoints.any { it.isEstimated } -> "⛳ Shot saved! Dashed part of the tracer is estimated"
+                                        else -> "⛳ Shot saved!"
+                                    } + " • $next"
+                                }
                                 isPaused -> "⏹ Not listening • Tap Start listening to pick up shots"
                                 limitReached -> "⚠️ ${ShotRepository.MAX_RECORDINGS} shot recordings stored • Tap here to free up space"
-                                showingShot && isBallFlightMissing && !launchSeen -> "⚠️ Didn't see the ball leave • Listening for the next shot"
-                                showingShot && isBallFlightMissing -> "⚠️ Ball flight not found • Listening for the next shot"
-                                showingShot && detectedPoints.any { it.isEstimated } -> "⛳ Shot saved! Dashed part of the tracer is estimated • Listening for the next shot"
-                                showingShot -> "⛳ Shot saved! Tap screen for distance • Listening for the next shot"
                                 isMicOn -> "👂 Listening for shot sound"
                                 else -> "👀 Watching for shots (microphone off)"
                             },
@@ -799,7 +847,7 @@ fun TrackerScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                        val details = if (phase == Phase.LISTENING && !isPaused) {
+                        val details = if (phase == Phase.LISTENING && (!isPaused || showingShot)) {
                             val mic = when {
                                 !isMicEnabled -> "off (watching only)"
                                 !micPermission -> "not allowed • turn it on in ⚙ Settings"
@@ -816,6 +864,42 @@ fun TrackerScreen(
                             )
                         } else emptyList()
                         details.forEach { Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp) }
+                    }
+                }
+            }
+        }
+
+        // A note for the debug recording, about the shot just captured or the moment it was started.
+        if (isDebugRecording && isWritingDebugNote) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = GolfDarkCard.copy(alpha = 0.95f)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 76.dp)
+                    .fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = debugNoteText,
+                        onValueChange = { debugNoteText = it },
+                        label = { Text("Note (optional), e.g. topped it, phone moved") },
+                        singleLine = false,
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.align(Alignment.End)) {
+                        TextButton(onClick = {
+                            debugNoteText = ""
+                            isWritingDebugNote = false
+                        }) { Text("Skip", color = Color.White) }
+                        Button(
+                            onClick = { saveDebugNote() },
+                            enabled = debugNoteText.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = GolfNeonGold)
+                        ) { Text("Save note", color = GolfDarkBg, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
@@ -862,6 +946,17 @@ fun TrackerScreen(
             }
             if (isDebugRecording || isSavingDebug) {
                 Spacer(modifier = Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = { startDebugNote(SystemClock.elapsedRealtimeNanos()) },
+                    enabled = isDebugRecording && !isWritingDebugNote,
+                    shape = RoundedCornerShape(22.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                    modifier = Modifier.height(44.dp)
+                ) {
+                    Icon(Icons.Default.EditNote, contentDescription = null, tint = GolfNeonGold, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add note", color = GolfNeonGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
                 Button(
                     onClick = { scope.launch { stopDebugRecording() } },
                     enabled = isDebugRecording,
@@ -882,7 +977,7 @@ fun TrackerScreen(
 
             if (showingShot && !isDebugRecording && !isSavingDebug) {
                 Spacer(modifier = Modifier.weight(1f))
-                if (detectedPoints.isNotEmpty()) {
+                run {
                     Button(
                         onClick = { showLocator = true },
                         shape = RoundedCornerShape(22.dp),

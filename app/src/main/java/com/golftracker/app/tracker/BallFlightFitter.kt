@@ -61,7 +61,14 @@ object BallFlightFitter {
     private const val MIN_SHORT_SIGHTINGS = 3
     /** How close, in ball tolerances, a sighting must be to the path: tight, as three points are few. */
     private const val SHORT_TOLERANCE = 1.0
-    private const val MAX_FIRST_SHORT_SIGHTING_S = 0.12
+    /**
+     * Seen this soon after it left. Filmed from close behind, the first moments of a chip are in front of the
+     * golfer, where everything moves and nothing is picked out, so the ball can first show after 0.17 s.
+     */
+    private const val MAX_FIRST_SHORT_SIGHTING_S = 0.2
+    /** Seen sooner than this, three sightings will do; later, [MIN_LATE_SHORT_SIGHTINGS] are needed. */
+    private const val PROMPT_FIRST_SHORT_SIGHTING_S = 0.12
+    private const val MIN_LATE_SHORT_SIGHTINGS = 4
     private const val MIN_SHORT_D1 = -0.3
     /** Screen heights from the tee. */
     private const val MAX_FIRST_SHORT_DISTANCE = 0.3
@@ -271,6 +278,8 @@ object BallFlightFitter {
                 if (pts.size < MIN_SHORT_SIGHTINGS) continue
                 // Seen soon after it left, and getting away fast: spots that happen to line up drift slowly.
                 if (pts.first().t - t0 > MAX_FIRST_SHORT_SIGHTING_S) continue
+                // First seen late: three spots lining up that far out is too easily chance, so ask for more.
+                if (pts.first().t - t0 > PROMPT_FIRST_SHORT_SIGHTING_S && pts.size < MIN_LATE_SHORT_SIGHTINGS) continue
                 if (pts.first().let { dist(it.x, it.y, teeX, teeY) } > firstShortLimit) continue
                 if (pts.last().let { dist(it.x, it.y, teeX, teeY) / (it.t - t0) } < MIN_SEEN_SPEED) continue
                 val refit = solve(t0, pts)?.takeIf { plausible(it) } ?: continue

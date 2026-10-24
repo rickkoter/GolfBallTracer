@@ -23,16 +23,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.golftracker.app.model.GpsCoordinate
+import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.TrajectoryMath
 import com.golftracker.app.ui.theme.*
 
-private const val FEET_PER_METER = 3.28084
+private const val METERS_PER_YARD = 0.9144
 
-/** Color for how close you are: green within 10 ft, yellow within 50 ft, red further away. */
-fun locatorDistanceColor(feet: Double): Color = when {
-    feet <= 10.0 -> Color(0xFF00E676)
-    feet <= 50.0 -> Color(0xFFFFD600)
+/** Color for how close you are: green within 3 yards, yellow within 15, red further away. */
+fun locatorDistanceColor(yards: Double): Color = when {
+    yards <= 3.0 -> Color(0xFF00E676)
+    yards <= 15.0 -> Color(0xFFFFD600)
     else -> Color(0xFFFF3D00)
 }
 
@@ -106,12 +107,45 @@ fun BallLocatorDialog(
     }
 }
 
+/**
+ * The ball locator for a saved shot: its landing estimate, or else where its ball was pinned on GPS.
+ * Used from the shot log and the shot's review.
+ */
+@Composable
+fun ShotBallLocator(shot: ShotRecord, here: GpsCoordinate?, heading: Float?, onDismiss: () -> Unit) {
+    val estimate = shot.estimatedLanding
+    val pinned = shot.landingLocation
+    val landing = estimate ?: pinned?.let { ball ->
+        val tee = shot.launchLocation
+        val meters = tee?.let { TrajectoryMath.calculateGpsDistanceMeters(it, ball) } ?: 0.0
+        LaunchPhysics.Landing(
+            position = ball,
+            bearingDegrees = tee?.let { LaunchPhysics.bearing(it, ball) } ?: 0.0,
+            carryMeters = meters,
+            totalMeters = meters,
+            launchSpeedMps = 0.0,
+            launchAngleDegrees = 0.0
+        )
+    }
+    BallLocatorDialog(
+        landing = landing,
+        unavailableReason = "This shot has no landing estimate or pinned ball position.",
+        here = here,
+        headingDegrees = heading,
+        pinned = estimate == null && pinned != null,
+        onDismiss = onDismiss
+    )
+}
+
+/** Whether [ShotBallLocator] has somewhere to point to for this shot. */
+val ShotRecord.isLocatable: Boolean get() = estimatedLanding != null || landingLocation != null
+
 @Composable
 private fun LocatorBody(landing: LaunchPhysics.Landing, here: GpsCoordinate, headingDegrees: Float?) {
     val meters = TrajectoryMath.calculateGpsDistanceMeters(here, landing.position)
-    val feet = meters * FEET_PER_METER
+    val yards = meters / METERS_PER_YARD
     val bearing = LaunchPhysics.bearing(here, landing.position)
-    val color = locatorDistanceColor(feet)
+    val color = locatorDistanceColor(yards)
     // The compass reads magnetic north; bearings are from true north.
     val declination = remember(here.latitude.toInt(), here.longitude.toInt()) {
         GeomagneticField(here.latitude.toFloat(), here.longitude.toFloat(), here.altitude.toFloat(), System.currentTimeMillis()).declination
@@ -149,14 +183,15 @@ private fun LocatorBody(landing: LaunchPhysics.Landing, here: GpsCoordinate, hea
     }
 
     Text(
-        text = if (feet < 1000) "%.0f ft".format(feet) else "%.0f yd".format(meters / 0.9144),
+        // Close in, to the yard and a bit: the last few yards are what finding the ball comes down to.
+        text = if (yards < 10) "%.1f yd".format(yards) else "%.0f yd".format(yards),
         color = color,
         fontSize = 44.sp,
         fontWeight = FontWeight.ExtraBold
     )
     Text(
         text = when {
-            feet <= 10.0 -> "You're there. Look around your feet."
+            yards <= 3.0 -> "You're there. Look around your feet."
             else -> "Head %s · %.0f°".format(compassPoint(bearing), bearing)
         },
         color = Color.White,
@@ -164,7 +199,7 @@ private fun LocatorBody(landing: LaunchPhysics.Landing, here: GpsCoordinate, hea
         fontWeight = FontWeight.SemiBold
     )
     if (here.accuracyMeters > 0f) {
-        Text("GPS ±%.0f ft".format(here.accuracyMeters * FEET_PER_METER), color = GolfTextMuted, fontSize = 12.sp)
+        Text("GPS ±%.0f yd".format(here.accuracyMeters / METERS_PER_YARD), color = GolfTextMuted, fontSize = 12.sp)
     }
 }
 

@@ -1,6 +1,7 @@
 package com.golftracker.app.model
 
 import com.golftracker.app.tracker.LaunchPhysics
+import com.golftracker.app.tracker.TrajectoryMath
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -121,3 +122,24 @@ fun tracerRuns(points: List<ScreenPoint>): List<Pair<List<ScreenPoint>, Boolean>
 
 /** Whether a tracer is in pixels (the demo flight) rather than fractions of the screen. */
 fun isPixelTracer(points: List<ScreenPoint>): Boolean = points.any { it.x > 5f || it.y > 5f }
+
+/** How far a shot went, in yards, and whether that's an estimate rather than measured on GPS. */
+data class ShotDistance(val yards: Double, val estimated: Boolean) {
+    /** "142 YDS", or "~142 YDS" for an estimate. */
+    val label: String get() = (if (estimated) "~" else "") + "%.0f YDS".format(yards)
+}
+
+/**
+ * The shot's distance: from the tee to where its ball was pinned on GPS; otherwise from the landing
+ * estimated from its launch on camera; otherwise unknown. The distance recorded live while walking to
+ * the ball isn't used, since until the ball is pinned it's only how far the phone has moved.
+ */
+val ShotRecord.distance: ShotDistance?
+    get() {
+        val tee = launchLocation
+        val ball = landingLocation
+        if (tee != null && ball != null) {
+            return ShotDistance(TrajectoryMath.metersToYards(TrajectoryMath.calculateGpsDistanceMeters(tee, ball)), estimated = false)
+        }
+        return estimatedLanding?.let { ShotDistance(TrajectoryMath.metersToYards(it.totalMeters), estimated = true) }
+    }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsGolf
 import androidx.compose.material.icons.filled.Videocam
@@ -25,7 +26,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.golftracker.app.export.ShotBundle
+import com.golftracker.app.location.DeviceOrientation
+import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.model.distance
+import com.golftracker.app.ui.components.ShotBallLocator
+import com.golftracker.app.ui.components.isLocatable
 import com.golftracker.app.model.TracerStyle
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.ui.components.ShotVideoPlayer
@@ -40,10 +46,20 @@ import java.io.File
 fun ShotReviewScreen(
     shotRecord: ShotRecord,
     repository: ShotRepository,
+    locationManager: LocationTrackerManager,
     onBack: () -> Unit,
     onRecordNext: () -> Unit
 ) {
     val context = LocalContext.current
+    // The ball locator for this shot: where you are now and which way the phone points.
+    val here by locationManager.currentLocation.collectAsState()
+    val orientation = remember { DeviceOrientation(context) }
+    DisposableEffect(orientation) {
+        orientation.start()
+        onDispose { orientation.stop() }
+    }
+    val heading by orientation.headingDegrees.collectAsState()
+    var locating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // The shot keeps changing for a while after it's taken: traced again from its video, then its snapshot baked.
     val shots by repository.shots.collectAsState()
@@ -190,14 +206,23 @@ fun ShotReviewScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
+                            val distance = shotRecord.distance
                             Text("Total Distance", color = GolfTextSecondary, fontSize = 12.sp)
                             Text(
-                                "%.0f YDS".format(shotRecord.distanceYards),
+                                distance?.label ?: "—",
                                 color = Color.White,
                                 fontSize = 28.sp,
                                 fontWeight = FontWeight.Black
                             )
-                            Text("(%.0f m)".format(shotRecord.distanceMeters), color = GolfTextMuted, fontSize = 13.sp)
+                            Text(
+                                when {
+                                    distance == null -> "Pin the ball's GPS to measure it"
+                                    distance.estimated -> "Estimated from the launch"
+                                    else -> "Measured on GPS"
+                                },
+                                color = GolfTextMuted,
+                                fontSize = 13.sp
+                            )
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
@@ -249,6 +274,30 @@ fun ShotReviewScreen(
                 }
             }
 
+            // The ball locator for this shot, from wherever you are now.
+            OutlinedButton(
+                onClick = { locating = true },
+                enabled = shotRecord.isLocatable,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+            ) {
+                Icon(
+                    Icons.Default.MyLocation,
+                    contentDescription = null,
+                    tint = if (shotRecord.isLocatable) GolfNeonCyan else GolfTextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    if (shotRecord.isLocatable) "Locate Ball" else "No landing spot to locate",
+                    color = if (shotRecord.isLocatable) GolfNeonCyan else GolfTextMuted,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
             Button(
                 onClick = onRecordNext,
                 shape = RoundedCornerShape(16.dp),
@@ -261,4 +310,6 @@ fun ShotReviewScreen(
             }
         }
     }
+
+    if (locating) ShotBallLocator(shotRecord, here, heading) { locating = false }
 }

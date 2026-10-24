@@ -17,7 +17,12 @@ import kotlin.math.max
  * Not thread-safe: call everything from one thread (see [AutoShotDetector]).
  */
 class ShotTrigger(
-    private val captureSeconds: Double = 5.0,
+    /**
+     * How long after the strike the flight is followed; the capture then ends by itself. In the backyard
+     * and range recordings the ball is never followed past 1.8 s (it's lost against trees or sky, or lands),
+     * and the rest of the flight is estimated from its launch.
+     */
+    private val captureSeconds: Double = 3.0,
     private val keepFrames: Boolean = true,
     var watchWithoutSound: Boolean = false,
     private val onEvent: (Event) -> Unit

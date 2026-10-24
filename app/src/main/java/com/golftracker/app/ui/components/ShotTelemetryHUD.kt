@@ -33,7 +33,6 @@ import com.golftracker.app.ui.theme.*
 @Composable
 fun ShotTelemetryHUD(
     distanceYards: Double,
-    distanceMeters: Double,
     showShotDistance: Boolean,
     clubName: String,
     /** Which golfer the next shot is tagged with, 1 to [ShotRecord.MAX_GOLFERS]. */
@@ -66,12 +65,6 @@ fun ShotTelemetryHUD(
                         color = GolfNeonLime,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = " (%.0f m)".format(distanceMeters),
-                        color = GolfTextMuted,
-                        fontSize = 11.sp,
-                        maxLines = 1
                     )
                 } else {
                     Icon(

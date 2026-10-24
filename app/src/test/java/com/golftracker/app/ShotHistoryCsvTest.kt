@@ -13,15 +13,16 @@ class ShotHistoryCsvTest {
 
     @Test
     fun oneRowPerShotOldestFirst() {
-        val later = ShotRecord(id = "b", timestampMs = 1_790_000_000_000, club = "7-Iron", golfer = 3, distanceYards = 152.34, distanceMeters = 139.3,
-            launchLocation = GpsCoordinate(40.1234567, -75.7654321), tracerStyle = "FIRE_RED")
+        // Pinned 139.3 m (152.3 yd) north of the tee; the distance saved while walking is ignored.
+        val later = ShotRecord(id = "b", timestampMs = 1_790_000_000_000, club = "7-Iron", golfer = 3, distanceYards = 0.1,
+            launchLocation = GpsCoordinate(40.1234567, -75.7654321), landingLocation = GpsCoordinate(40.1247095, -75.7654321), tracerStyle = "FIRE_RED")
         val earlier = ShotRecord(id = "a", timestampMs = 1_789_000_000_000, club = "Driver", tracerStyle = "PRO_LIME")
         val lines = ShotHistoryCsv.build(listOf(later, earlier), utc).trimEnd().split("\r\n")
 
         assertEquals(3, lines.size)
-        assertEquals("Date,Time,Golfer,Club,Distance (yd),Distance (m),Tee latitude,Tee longitude,Landing latitude,Landing longitude,Tracer style,Notes,Shot ID", lines[0])
+        assertEquals("Date,Time,Golfer,Club,Distance (yd),Distance from,Tee latitude,Tee longitude,Landing latitude,Landing longitude,Tracer style,Notes,Shot ID", lines[0])
         assertEquals("2026-09-10,00:26:40,,Driver,,,,,,,Pro Lime,,a", lines[1])
-        assertEquals("2026-09-21,14:13:20,3,7-Iron,152.3,139.3,40.123457,-75.765432,,,Fire Red,,b", lines[2])
+        assertEquals("2026-09-21,14:13:20,3,7-Iron,152.3,GPS,40.123457,-75.765432,40.124710,-75.765432,Fire Red,,b", lines[2])
     }
 
     @Test

@@ -30,10 +30,10 @@ import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotHistoryCsv
 import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
-import com.golftracker.app.model.GpsCoordinate
 import com.golftracker.app.model.ShotRecord
-import com.golftracker.app.tracker.LaunchPhysics
-import com.golftracker.app.ui.components.BallLocatorDialog
+import com.golftracker.app.model.distance
+import com.golftracker.app.ui.components.ShotBallLocator
+import com.golftracker.app.ui.components.isLocatable
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -103,8 +103,10 @@ fun HistoryScreen(
     }
 
     val totalShots = shots.size
-    val maxDistanceYards = shots.maxOfOrNull { it.distanceYards } ?: 0.0
-    val avgDistanceYards = if (shots.isNotEmpty()) shots.map { it.distanceYards }.average() else 0.0
+    // Only shots whose distance is known: pinned on GPS, or estimated from the launch.
+    val distances = shots.mapNotNull { it.distance?.yards }
+    val maxDistanceYards = distances.maxOrNull()
+    val avgDistanceYards = distances.takeIf { it.isNotEmpty() }?.average()
 
     Scaffold(
         topBar = {
@@ -164,11 +166,11 @@ fun HistoryScreen(
                     }
                     Column {
                         Text("AVG DISTANCE", color = GolfTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("%.0f YDS".format(avgDistanceYards), color = GolfNeonLime, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Text(avgDistanceYards?.let { "%.0f YDS".format(it) } ?: "—", color = GolfNeonLime, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     }
                     Column {
                         Text("LONGEST SHOT", color = GolfTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("%.0f YDS".format(maxDistanceYards), color = GolfNeonCyan, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Text(maxDistanceYards?.let { "%.0f YDS".format(it) } ?: "—", color = GolfNeonCyan, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     }
                     Column {
                         Text("RECORDINGS", color = GolfTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -221,33 +223,7 @@ fun HistoryScreen(
         }
     }
 
-    locating?.let { shot -> PastShotLocator(shot, here, heading) { locating = null } }
-}
-
-/** The ball locator for a past shot: its landing estimate, or else where its ball was pinned on GPS. */
-@Composable
-private fun PastShotLocator(shot: ShotRecord, here: GpsCoordinate?, heading: Float?, onDismiss: () -> Unit) {
-    val estimate = shot.estimatedLanding
-    val pinned = shot.landingLocation
-    val landing = estimate ?: pinned?.let { ball ->
-        val tee = shot.launchLocation
-        LaunchPhysics.Landing(
-            position = ball,
-            bearingDegrees = tee?.let { LaunchPhysics.bearing(it, ball) } ?: 0.0,
-            carryMeters = shot.distanceMeters,
-            totalMeters = shot.distanceMeters,
-            launchSpeedMps = 0.0,
-            launchAngleDegrees = 0.0
-        )
-    }
-    BallLocatorDialog(
-        landing = landing,
-        unavailableReason = "This shot has no landing estimate or pinned ball position.",
-        here = here,
-        headingDegrees = heading,
-        pinned = estimate == null && pinned != null,
-        onDismiss = onDismiss
-    )
+    locating?.let { shot -> ShotBallLocator(shot, here, heading) { locating = null } }
 }
 
 @Composable
@@ -327,14 +303,17 @@ fun ShotHistoryCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text("%.0f YDS".format(shot.distanceYards), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("(%.0f m)".format(shot.distanceMeters), color = GolfTextSecondary, fontSize = 12.sp)
+                    val distance = shot.distance
+                    Text(distance?.label ?: "No distance", color = if (distance != null) Color.White else GolfTextMuted, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    distance?.let {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (it.estimated) "estimated" else "GPS", color = GolfTextSecondary, fontSize = 12.sp)
+                    }
                 }
             }
 
             // The ball locator, for a shot with a landing estimate or a pinned ball position.
-            val locatable = shot.estimatedLanding != null || shot.landingLocation != null
+            val locatable = shot.isLocatable
             IconButton(onClick = onLocate, enabled = locatable) {
                 Icon(
                     Icons.Default.MyLocation,

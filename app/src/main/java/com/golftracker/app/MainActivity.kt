@@ -201,6 +201,7 @@ fun MainAppScreen(
                         ShotReviewScreen(
                             shotRecord = shot,
                             repository = repository,
+                            locationManager = locationManager,
                             onBack = { currentTab = AppTab.HISTORY },
                             onRecordNext = { currentTab = AppTab.TRACKER }
                         )
