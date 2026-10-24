@@ -16,13 +16,21 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let lock = NSLock()
 
     private var aspect: Float = 9.0 / 19.5
+    /// Lets through as many frames as the detector keeps up with, up to 60 a second.
+    private let pacer = FramePacer(maxFps: 60, fallbackFps: 30, behindSeconds: 1, retrySeconds: 10)
     private var stillRequest: ((CGImage?) -> Void)?
     private var configured = false
 
     /// Called on the frame queue for every frame while [wantsFrames] says so.
     var onFrame: ((LumaFrame) -> Void)?
     var wantsFrames: () -> Bool = { false }
+    /// Frames still waiting for the detector, for pacing.
+    var queuedFrames: () -> Int = { 0 }
 
+    /// The camera's frame rate, once set up.
+    private(set) var cameraFps: Double = 30
+    /// The rate frames are analysed at now: the camera's, or 30 when the detector can't keep up.
+    var analysisFps: Double { min(cameraFps, pacer.fps) }
     /// The camera's vertical field of view as the preview shows it upright, in radians, once known.
     private(set) var verticalFieldOfView: Double?
 
@@ -63,6 +71,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         session.beginConfiguration()
         defer { session.commitConfiguration() }
         // 1080p, as the Android app films: the analysis frames come out about 640 pixels tall either way.
+        // (A format chosen below for its frame rate takes over from this preset.)
         session.sessionPreset = session.canSetSessionPreset(.hd1920x1080) ? .hd1920x1080 : .high
         // The microphone is used on its own (see StrikeMicrophone), not through the capture session.
         session.automaticallyConfiguresApplicationAudioSession = false
@@ -78,20 +87,41 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         output.setSampleBufferDelegate(self, queue: frameQueue)
         guard session.canAddOutput(output) else { return "Couldn't read the camera's frames." }
         session.addOutput(output)
-        // 30 frames a second, steadily: the tracker's timings were worked out at about that rate.
-        do {
-            try camera.lockForConfiguration()
-            let thirty = CMTime(value: 1, timescale: 30)
-            if camera.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameDuration <= thirty && thirty <= $0.maxFrameDuration }) {
-                camera.activeVideoMinFrameDuration = thirty
-                camera.activeVideoMaxFrameDuration = thirty
-            }
-            camera.unlockForConfiguration()
-        } catch {}
+        cameraFps = useFastestFormat(camera)
         device = camera
         configured = true
         updateFieldOfView()
         return nil
+    }
+
+    /// Films 1080p at the fastest rate the camera has, up to 60 frames a second: newer iPhones film the ball's
+    /// first moments in twice as many frames. Full-range YUV and full-sensor (unbinned) formats are preferred at
+    /// the same rate. Returns the rate chosen.
+    private func useFastestFormat(_ camera: AVCaptureDevice) -> Double {
+        func rate(_ format: AVCaptureDevice.Format) -> Double {
+            min(60, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0)
+        }
+        func rank(_ format: AVCaptureDevice.Format) -> (Double, Int, Int) {
+            let fullRange = CMFormatDescriptionGetMediaSubType(format.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            return (rate(format), fullRange ? 1 : 0, format.isVideoBinned ? 0 : 1)
+        }
+        let hd = camera.formats.filter {
+            let size = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+            return size.width == 1920 && size.height == 1080
+        }
+        guard let best = hd.max(by: { rank($0) < rank($1) }), rate(best) >= 30 else { return 30 }
+        let fps = rate(best)
+        do {
+            try camera.lockForConfiguration()
+            camera.activeFormat = best
+            let duration = CMTime(value: 1, timescale: CMTimeScale(fps.rounded()))
+            camera.activeVideoMinFrameDuration = duration
+            camera.activeVideoMaxFrameDuration = duration
+            camera.unlockForConfiguration()
+        } catch {
+            return 30
+        }
+        return fps.rounded()
     }
 
     /// The sensor's long side is upright on screen; the preview fills the screen, cropping one way or the other.
@@ -116,6 +146,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         guard wantsFrames(), let onFrame else { return }
         // Presentation times are on the host clock, as AVAudioTime's host times are.
         let timestampNs = Int64(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)) * 1e9)
+        guard pacer.keep(timestampNs: timestampNs, queuedFrames: Int32(queuedFrames())) else { return }
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddressOfPlane(pixels, 0) else { return }

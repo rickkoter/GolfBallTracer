@@ -15,20 +15,23 @@ import kotlin.math.abs
 class BallTrackerAnalyzer(
     private val wantsFrames: () -> Boolean,
     private val onFrame: (LumaFrame) -> Unit,
-    targetLongSide: Int = 640,
-    /** Frames closer together than this are skipped, so analysis keeps up even when the camera runs at 60 fps. */
-    private val minFrameIntervalNs: Long = 28_000_000L
+    /** Frames still waiting for the detector: up to 60 fps are analysed while it keeps up, else 30 (see [FramePacer]). */
+    private val queuedFrames: () -> Int = { 0 },
+    targetLongSide: Int = 640
 ) : ImageAnalysis.Analyzer {
 
     private val sampler = LumaSampler(targetLongSide)
-    private val rate = FrameRateLimiter(minFrameIntervalNs)
+    private val pacer = FramePacer()
+
+    /** The rate frames are analysed at now (at most the camera's own). */
+    val analysisFps: Double get() = pacer.fps
     private var clockOffsetNs: Long? = null
 
     override fun analyze(image: ImageProxy) {
         try {
             if (!wantsFrames()) return
             val timestamp = toElapsedRealtime(image.imageInfo.timestamp)
-            if (!rate.keep(timestamp)) return
+            if (!pacer.keep(timestamp, queuedFrames())) return
             val plane = image.planes[0]
             val crop = image.cropRect
             onFrame(
@@ -55,17 +58,5 @@ class BallTrackerAnalyzer(
             if (abs(boot - sensorNs) <= abs(mono - sensorNs)) 0L else boot - mono
         }.also { clockOffsetNs = it }
         return sensorNs + offset
-    }
-}
-
-/** Lets frames through no closer together than [minIntervalNs]. */
-class FrameRateLimiter(private val minIntervalNs: Long) {
-    private var lastKeptNs: Long? = null
-
-    fun keep(timestampNs: Long): Boolean {
-        val last = lastKeptNs
-        if (last != null && timestampNs - last < minIntervalNs) return false
-        lastKeptNs = timestampNs
-        return true
     }
 }

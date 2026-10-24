@@ -48,6 +48,7 @@ final class TrackerModel: ObservableObject {
 
     init() {
         camera.wantsFrames = { [detector] in detector.wantsFrames }
+        camera.queuedFrames = { [detector] in detector.queuedFrames }
         camera.onFrame = { [detector] frame in
             detector.offer(frame)
             LiveCheck.frame(frame)
@@ -75,9 +76,10 @@ final class TrackerModel: ObservableObject {
                 }
                 self.camera.start { problem in
                     self.problem = problem
-                    LiveCheck.log("camera \(problem ?? "started"), aspect \(self.camera.uprightAspect), vertical view \(self.camera.verticalFieldOfView.map { String(format: "%.1f°", $0 * 180 / .pi) } ?? "?")")
+                    LiveCheck.log("camera \(problem ?? "started") at \(Int(self.camera.cameraFps)) fps, aspect \(self.camera.uprightAspect), vertical view \(self.camera.verticalFieldOfView.map { String(format: "%.1f°", $0 * 180 / .pi) } ?? "?")")
                     if LiveCheck.requested {
-                        LiveCheck.startReporting { [detector = self.detector] in detector.queuedFrames }
+                        LiveCheck.startReporting(queued: { [detector = self.detector] in detector.queuedFrames },
+                                                analysisFps: { [camera = self.camera] in camera.analysisFps })
                         self.startListening()
                     }
                 }

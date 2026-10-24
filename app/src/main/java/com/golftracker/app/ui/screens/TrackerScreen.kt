@@ -203,7 +203,8 @@ fun TrackerScreen(
             onFrame = {
                 detector.offerFrame(it)
                 debugRecorder.onFrame(it)
-            }
+            },
+            queuedFrames = { detector.queuedFrames }
         )
     }
     DisposableEffect(Unit) {
@@ -333,7 +334,13 @@ fun TrackerScreen(
     LaunchedEffect(Unit) {
         var wasBehind = false
         var capturingSinceMs = 0L
+        var analysisFps = analyzer.analysisFps
         while (true) {
+            // The analysis rate drops to 30 fps when the detector can't keep up at 60 (FramePacer).
+            if (analyzer.analysisFps != analysisFps) {
+                analysisFps = analyzer.analysisFps
+                debugRecorder.log("analysis-rate", "%.0f fps".format(analysisFps))
+            }
             detectorLagS = detector.lagNs / 1e9f
             val behind = detectorLagS > LAG_WORTH_SHOWING_S
             if (behind && !wasBehind) debugRecorder.log("detector-behind", "%.1f s, %d frames waiting".format(detectorLagS, detector.queuedFrames))

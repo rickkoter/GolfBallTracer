@@ -462,7 +462,8 @@ class ShotCaptureSession(
         const val FAR = 4
         private const val MAX_LAUNCH_FROM_HINT_NS = 120_000_000L
         private const val KEPT_FIRST_FRAMES = 10
-        private const val KEPT_RECENT_FRAMES = 200
+        /** 4 s at 60 fps: the frames fed from before the strike plus the 3 s capture, so a recording has no gap. */
+        private const val KEPT_RECENT_FRAMES = 240
         private const val MAX_BUFFERED_CANDIDATES = 60_000
     }
 }

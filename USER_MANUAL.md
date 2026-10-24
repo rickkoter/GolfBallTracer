@@ -148,6 +148,8 @@ Tap the **Shot Log** tab on the bottom navigation bar to access your saved shots
    - Standard white golf balls and hi-vis neon yellow/green balls provide the best real-time optical luminance tracking.
 4. **Keeping Lenses Clean**:
    - Wipe your phone camera lens clean before a round to ensure crisp frame analysis.
+5. **Frame Rate**:
+   - On phones whose camera films 60 frames a second, the app analyses all 60: the ball's first moments are seen in twice as many frames, which finds the ball and its flight more often. If the phone can't keep up, it drops to 30 by itself and tries 60 again later (debug recordings log each change as `analysis-rate`). Debug recordings at 60 fps are about twice the size.
 
 ---
 

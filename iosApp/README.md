@@ -16,11 +16,17 @@ Kotlin (`../shared`) and built into `GolfTracking.framework` by Gradle as part o
   shared (swipe right, or the share button in its playback), to send to whoever is looking into tracking.
 
 How it fits together: `CameraController` reads each 1080p frame's grey plane straight into the shared
-`CameraFrameSampler` (turned upright and cropped to the screen, about 640 pixels tall, 30 frames a second);
+`CameraFrameSampler` (turned upright and cropped to the screen, about 640 pixels tall);
 `StrikeMicrophone` feeds the microphone to the shared strike detector in measurement mode (no voice
 processing); `ShotDetector` runs the shared `ShotTrigger` on its own queue; frames and strikes share the
 host clock. `MotionSensor` gives the camera's pose for estimated flights and drops strikes heard with the
 phone pointing at the ground.
+
+Frame rate: the camera films 1080p at the fastest rate it has, up to 60 frames a second (newer iPhones;
+the iPad 9th generation and older phones film at 30). The shared `FramePacer` passes every frame while the
+detector keeps up, drops to 30 once it's a second behind, and tries 60 again later. On the Oct 18 range
+sessions (60 fps video) every ball and flight was found at 60 fps, while every other frame (30 fps) missed
+one ball and one flight. Rates above 60 aren't used: no footage has been checked there.
 
 **Still to come:** GPS distances and the ball locator, the video recording and re-trace, the shot log
 with stats, and debug recordings.
@@ -41,7 +47,7 @@ To get the app to testers who aren't connected to this Mac, use TestFlight: see
 **[TESTFLIGHT.md](TESTFLIGHT.md)**.
 
 The app runs on iPhone and iPad, upright only. On an iPad (9th generation) replays matched the Android
-ones (a shot recording replays in under a second), and live it analyses all 30 frames a second.
+ones (a shot recording replays in under a second), and live it analyses every frame its camera gives (30 a second).
 
 ## Adding recordings
 

@@ -33,7 +33,7 @@ enum LiveCheck {
     }
 
     /// Prints the frame count every two seconds, with how far behind the newest frame is.
-    static func startReporting(queued: @escaping () -> Int) {
+    static func startReporting(queued: @escaping () -> Int, analysisFps: @escaping () -> Double) {
         guard requested, timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
             lock.lock()
@@ -42,7 +42,7 @@ enum LiveCheck {
             let last = lastFrame
             lock.unlock()
             let size = last.map { "\($0.0)x\($0.1), newest \(String(format: "%.0f", Double(hostNowNs() - $0.2) / 1e6)) ms old" } ?? "none yet"
-            log(String(format: "frames %.1f/s, %@, %d queued", Double(n) / 2, size, queued()))
+            log(String(format: "frames %.1f/s (pacing at %.0f), %@, %d queued", Double(n) / 2, analysisFps(), size, queued()))
         }
     }
 
