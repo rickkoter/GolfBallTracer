@@ -11,7 +11,7 @@ import java.util.TimeZone
 object ShotHistoryCsv {
 
     private val HEADER = listOf(
-        "Date", "Time", "Club", "Distance (yd)", "Distance (m)",
+        "Date", "Time", "Golfer", "Club", "Distance (yd)", "Distance (m)",
         "Tee latitude", "Tee longitude", "Landing latitude", "Landing longitude",
         "Tracer style", "Notes", "Shot ID"
     )
@@ -24,6 +24,7 @@ object ShotHistoryCsv {
             listOf(
                 date.format(at),
                 time.format(at),
+                shot.golfer?.toString() ?: "",
                 shot.club,
                 if (shot.distanceYards > 0) "%.1f".format(Locale.US, shot.distanceYards) else "",
                 if (shot.distanceMeters > 0) "%.1f".format(Locale.US, shot.distanceMeters) else "",

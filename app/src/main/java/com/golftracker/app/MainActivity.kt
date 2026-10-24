@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.golftracker.app.location.LocationTrackerManager
+import com.golftracker.app.model.ClubType
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.repository.ShotProcessor
 import com.golftracker.app.repository.ShotRepository
@@ -115,8 +116,13 @@ fun MainAppScreen(
     processor: ShotProcessor
 ) {
     var currentTab by remember { mutableStateOf(AppTab.TRACKER) }
-    // Listening for the strike is on each time the app starts; the tracker's 🎤 button turns it off.
+    // Hearing the strike is on each time the app starts; Settings › Hear the strike turns it off.
     var isMicEnabled by rememberSaveable { mutableStateOf(true) }
+    // Listening for shots starts off; Start listening turns it on. Kept, with the club and golfer the
+    // next shot is tagged with, while switching between the tracer and the shot log.
+    var listeningOn by rememberSaveable { mutableStateOf(false) }
+    var selectedClub by rememberSaveable { mutableStateOf(ClubType.DRIVER.displayName) }
+    var golfer by rememberSaveable { mutableIntStateOf(1) }
     var reviewShotRecord by remember { mutableStateOf<ShotRecord?>(null) }
 
     Scaffold(
@@ -166,6 +172,12 @@ fun MainAppScreen(
                         processor = processor,
                         isMicEnabled = isMicEnabled,
                         onMicEnabledChange = { isMicEnabled = it },
+                        listeningOn = listeningOn,
+                        onListeningChange = { listeningOn = it },
+                        selectedClub = selectedClub,
+                        onClubChange = { selectedClub = it },
+                        golfer = golfer,
+                        onGolferChange = { golfer = it },
                         onNavigateToReview = { shot ->
                             reviewShotRecord = shot
                             currentTab = AppTab.REVIEW
@@ -175,6 +187,7 @@ fun MainAppScreen(
                 AppTab.HISTORY -> {
                     HistoryScreen(
                         repository = repository,
+                        locationManager = locationManager,
                         onSelectShot = { shot ->
                             reviewShotRecord = shot
                             currentTab = AppTab.REVIEW

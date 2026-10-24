@@ -53,8 +53,8 @@ The app opens directly to the **Tracer View** camera screen.
 ### Recording Shots (Hands-Free)
 There's nothing to tap before a shot. While the Tracer View is open, the app **listens for the strike and watches the ball**:
 
-1. **Set up the phone** so the ball on the tee (or mat) is in view, ideally on a tripod or leaning against your bag behind the golfer. The screen stays on while the app is open (it can't hear or see shots with the screen off), so plug in for long sessions. The banner shows **👂 Listening**, plus whether the mic and video are on and how many shot recordings are stored.
-2. **Select Your Club** (optional): tap the club badge on the telemetry card.
+1. **Set up the phone** so the ball on the tee (or mat) is in view, ideally on a tripod or leaning against your bag behind the golfer. The screen stays on while the app is open (it can't hear or see shots with the screen off), so plug in for long sessions. The app opens **not listening**: tap **Start listening** (bottom left) when you're ready. The banner then shows **👂 Listening for shot sound**, plus whether the mic and video are on and how many shot recordings are stored.
+2. **Choose the golfer and club** (optional): on the card at the top, tap **GOLFER 1** to pick golfer 1 to 4, and the club badge to pick the club. Each shot is tagged with both, and they stay as chosen until you change them, even when switching to the Shot Log and back.
 3. **Just hit.** The crack of the club on the ball, together with the ball vanishing from where it sat, starts the shot. A ring marks the ball that was hit and the banner turns red (**🔴 Shot detected!**) while the flight is followed for a few seconds. Tap the screen to finish early once the ball lands.
    - A practice swing, a clap or a shot from the next bay doesn't start anything: it takes both the sound and the ball leaving.
    - The microphone is what hears the strike. It's on whenever the app starts; **⚙ Settings › Hear the strike** turns it off, or asks for permission if it isn't allowed yet. While it's on, a little bar in the banner shows how loud it is, so you can see it's hearing.
@@ -131,7 +131,8 @@ After completing a shot, you are automatically taken to the **Shot Review** scre
 Tap the **Shot Log** tab on the bottom navigation bar to access your saved shots gallery:
 
 - **Performance Summary**: View your Total Shots recorded, Average Shot Distance, and Longest Drive across all clubs.
-- **Shot Log List**: Inspect thumbnail previews, dates, club tags, and yardages for every recorded shot.
+- **Shot Log List**: Inspect thumbnail previews, dates, club and golfer tags, and yardages for every recorded shot.
+- **Find a past shot's ball**: tap the locate (crosshair) icon on a shot to open the ball locator for it, pointing the way from where you are now. It uses the landing estimate saved with the shot, or, for a shot whose ball you pinned on GPS, that spot. Shots with neither (including those from before this was added) have the icon greyed out.
 - **Delete Shots**: Tap the trash icon next to any shot to remove it, and its recording, from history.
 - **Recordings**: Shots with a 🎥 have a recording. The summary shows how many of the 32 are used.
 

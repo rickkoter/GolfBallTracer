@@ -169,7 +169,7 @@ object SnapshotExporter {
         canvas.drawText(distString, cardLeft + 24f, textY, distPaint)
 
         textY += (cardHeight * 0.22f)
-        val clubDateString = "${shot.club.uppercase()} • ${formatTimestamp(shot.timestampMs)}"
+        val clubDateString = listOfNotNull(shot.golfer?.let { "GOLFER $it" }, shot.club.uppercase(), formatTimestamp(shot.timestampMs)).joinToString(" • ")
         canvas.drawText(clubDateString, cardLeft + 24f, textY, subTextPaint)
 
         val gpsString = if (shot.launchLocation != null) {

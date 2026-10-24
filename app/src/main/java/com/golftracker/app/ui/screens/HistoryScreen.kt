@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.SportsGolf
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
@@ -27,7 +28,12 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotHistoryCsv
+import com.golftracker.app.location.DeviceOrientation
+import com.golftracker.app.location.LocationTrackerManager
+import com.golftracker.app.model.GpsCoordinate
 import com.golftracker.app.model.ShotRecord
+import com.golftracker.app.tracker.LaunchPhysics
+import com.golftracker.app.ui.components.BallLocatorDialog
 import com.golftracker.app.repository.ShotRepository
 import com.golftracker.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -40,12 +46,23 @@ import java.util.*
 @Composable
 fun HistoryScreen(
     repository: ShotRepository,
+    locationManager: LocationTrackerManager,
     onSelectShot: (ShotRecord) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val shots by repository.shots.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+
+    // The ball locator for a past shot: where you are now and which way the phone points.
+    val here by locationManager.currentLocation.collectAsState()
+    val orientation = remember { DeviceOrientation(context) }
+    DisposableEffect(orientation) {
+        orientation.start()
+        onDispose { orientation.stop() }
+    }
+    val heading by orientation.headingDegrees.collectAsState()
+    var locating by remember { mutableStateOf<ShotRecord?>(null) }
 
     // Android's "save as" picker: the user chooses a folder on the phone or in Google Drive.
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -193,6 +210,7 @@ fun HistoryScreen(
                         ShotHistoryCard(
                             shot = shot,
                             onClick = { onSelectShot(shot) },
+                            onLocate = { locating = shot },
                             onDelete = {
                                 scope.launch { repository.deleteShot(shot.id) }
                             }
@@ -202,12 +220,41 @@ fun HistoryScreen(
             }
         }
     }
+
+    locating?.let { shot -> PastShotLocator(shot, here, heading) { locating = null } }
+}
+
+/** The ball locator for a past shot: its landing estimate, or else where its ball was pinned on GPS. */
+@Composable
+private fun PastShotLocator(shot: ShotRecord, here: GpsCoordinate?, heading: Float?, onDismiss: () -> Unit) {
+    val estimate = shot.estimatedLanding
+    val pinned = shot.landingLocation
+    val landing = estimate ?: pinned?.let { ball ->
+        val tee = shot.launchLocation
+        LaunchPhysics.Landing(
+            position = ball,
+            bearingDegrees = tee?.let { LaunchPhysics.bearing(it, ball) } ?: 0.0,
+            carryMeters = shot.distanceMeters,
+            totalMeters = shot.distanceMeters,
+            launchSpeedMps = 0.0,
+            launchAngleDegrees = 0.0
+        )
+    }
+    BallLocatorDialog(
+        landing = landing,
+        unavailableReason = "This shot has no landing estimate or pinned ball position.",
+        here = here,
+        headingDegrees = heading,
+        pinned = estimate == null && pinned != null,
+        onDismiss = onDismiss
+    )
 }
 
 @Composable
 fun ShotHistoryCard(
     shot: ShotRecord,
     onClick: () -> Unit,
+    onLocate: () -> Unit,
     onDelete: () -> Unit
 ) {
     val sdf = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.US)
@@ -258,6 +305,17 @@ fun ShotHistoryCard(
                     ) {
                         Text(shot.club.uppercase(), color = GolfNeonLime, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
+                    shot.golfer?.let { golfer ->
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(GolfNeonCyan.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("GOLFER $golfer", color = GolfNeonCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(dateStr, color = GolfTextMuted, fontSize = 11.sp)
                     if (shot.hasRecording) {
@@ -275,6 +333,15 @@ fun ShotHistoryCard(
                 }
             }
 
+            // The ball locator, for a shot with a landing estimate or a pinned ball position.
+            val locatable = shot.estimatedLanding != null || shot.landingLocation != null
+            IconButton(onClick = onLocate, enabled = locatable) {
+                Icon(
+                    Icons.Default.MyLocation,
+                    contentDescription = "Locate ball",
+                    tint = if (locatable) GolfNeonCyan else GolfTextMuted.copy(alpha = 0.4f)
+                )
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = GolfTextMuted)
             }

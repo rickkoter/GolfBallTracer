@@ -50,6 +50,8 @@ fun BallLocatorDialog(
     unavailableReason: String?,
     here: GpsCoordinate?,
     headingDegrees: Float?,
+    /** [landing] is where the ball was pinned on GPS, rather than an estimate from the video. */
+    pinned: Boolean = false,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -76,7 +78,12 @@ fun BallLocatorDialog(
                     else -> LocatorBody(landing, here, headingDegrees)
                 }
 
-                landing?.let {
+                if (pinned) landing?.let {
+                    Text(
+                        "Ball pinned at %.6f, %.6f".format(it.position.latitude, it.position.longitude),
+                        color = GolfTextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center
+                    )
+                } else landing?.let {
                     Text(
                         "Landing (estimated): %.6f, %.6f".format(it.position.latitude, it.position.longitude),
                         color = GolfTextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center

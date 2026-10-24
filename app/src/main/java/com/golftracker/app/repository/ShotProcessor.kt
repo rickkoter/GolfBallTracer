@@ -8,6 +8,7 @@ import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotDebugExporter
 import com.golftracker.app.export.ShotTracking
 import com.golftracker.app.export.SnapshotExporter
+import com.golftracker.app.model.GpsCoordinate
 import com.golftracker.app.model.ScreenPoint
 import com.golftracker.app.model.ShotRecord
 import com.golftracker.app.tracker.BallFlightFitter
@@ -134,9 +135,11 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         var tracking = ShotTracking.of(shot, new.liveFlight).copy(videoStartNs = videoStartNs)
         ShotTracking.write(tracking, trackingFile)
 
-        // 2. Into the history straight away.
+        // 2. Into the history straight away, with where the ball should have landed for the ball locator.
+        val liveLanding = landingOf(new.liveFlight, shot, new.camera, new.record.launchLocation)
         repository.saveShot(
             new.record.copy(
+                estimatedLanding = liveLanding,
                 videoPath = video?.path,
                 trackingPath = trackingFile.path,
                 videoStartMs = videoStartNs?.let { it / 1_000_000L },
@@ -201,8 +204,10 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         val edited = current.points != new.record.points
         val final = if (edited) current else current.copy(points = points, tracedFrom = tracedFrom, tracerEstimated = estimated)
         val snapshot = new.still?.let { SnapshotExporter.createAnnotatedSnapshot(context, it, final) }
+        val landing = usedFlight?.let { landingOf(it, shot, new.camera, current.launchLocation) } ?: liveLanding
         val saved = repository.update(id) {
             it.copy(
+                estimatedLanding = landing,
                 points = final.points,
                 tracedFrom = final.tracedFrom,
                 tracerEstimated = final.tracerEstimated,
@@ -271,7 +276,8 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
                 frameAspect = current.frameAspect,
                 tracedFrom = current.tracedFrom,
                 tracerEstimated = current.tracerEstimated,
-                snapshotUri = current.snapshotUri
+                snapshotUri = current.snapshotUri,
+                estimatedLanding = current.estimatedLanding
             )
         } ?: return edited
         val look = lookOf(saved)
@@ -281,6 +287,26 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         saved.snapshotUri?.let { deleteImage(it) }
         synchronized(bakedLooks) { bakedLooks[saved.id] = look }
         return repository.update(saved.id) { it.copy(snapshotUri = uri.toString()) } ?: saved
+    }
+
+    /**
+     * Where the ball should have come down, from its launch on camera, the camera's pose while filming and
+     * the tee's GPS position; null when any of those is missing or the launch isn't a believable one.
+     */
+    private fun landingOf(
+        flight: BallFlightFitter.Flight?, shot: CapturedShot, camera: LaunchPhysics.CameraPose?, tee: GpsCoordinate?
+    ): LaunchPhysics.Landing? {
+        if (flight == null || camera == null || tee == null) return null
+        val radius = shot.ballRadius ?: return null
+        return try {
+            val declination = android.hardware.GeomagneticField(
+                tee.latitude.toFloat(), tee.longitude.toFloat(), tee.altitude.toFloat(), System.currentTimeMillis()
+            ).declination.toDouble()
+            LaunchPhysics.estimateLanding(flight.launch, radius, camera.verticalFovRadians, camera.deviceToWorld, declination, tee)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     /** What a snapshot shows of the shot. */

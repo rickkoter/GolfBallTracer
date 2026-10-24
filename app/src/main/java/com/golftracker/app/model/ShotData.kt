@@ -1,5 +1,6 @@
 package com.golftracker.app.model
 
+import com.golftracker.app.tracker.LaunchPhysics
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -49,6 +50,8 @@ data class ShotRecord(
     val id: String = UUID.randomUUID().toString(),
     val timestampMs: Long = System.currentTimeMillis(),
     val club: String = ClubType.DRIVER.displayName,
+    /** Which golfer (1 to [MAX_GOLFERS]) hit it; null for shots from before golfers were tagged. */
+    val golfer: Int? = null,
     val tracerStyle: String = TracerStyle.PRO_LIME.name,
     
     // GPS Telemetry
@@ -80,11 +83,14 @@ data class ShotRecord(
     /** Where the tracer came from: [TRACED_FROM_CAMERA] (live analysis) or [TRACED_FROM_VIDEO] (the recording). */
     val tracedFrom: String? = null,
     /** The ball was only seen leaving; most of the tracer is estimated from its launch (drawn dashed). */
-    val tracerEstimated: Boolean = false
+    val tracerEstimated: Boolean = false,
+    /** Where the ball is estimated to have landed, worked out from its launch on camera, for the ball locator. */
+    val estimatedLanding: LaunchPhysics.Landing? = null
 ) {
     val hasRecording: Boolean get() = videoPath != null || trackingPath != null
 
     companion object {
+        const val MAX_GOLFERS = 4
         const val TRACED_FROM_CAMERA = "camera"
         const val TRACED_FROM_VIDEO = "video"
     }

@@ -137,6 +137,7 @@ object LaunchPhysics {
     private const val MIN_LAUNCH_ANGLE_DEG = 3.0
     private const val MAX_LAUNCH_ANGLE_DEG = 65.0
 
+    @kotlinx.serialization.Serializable
     data class Landing(
         val position: GpsCoordinate,
         /** Compass bearing from the tee, degrees from true north. */

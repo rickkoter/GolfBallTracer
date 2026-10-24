@@ -77,13 +77,22 @@ fun TrackerScreen(
     /** Whether to listen for the strike; on whenever the app starts. */
     isMicEnabled: Boolean,
     onMicEnabledChange: (Boolean) -> Unit,
+    /** Whether to listen for shots: off when the app starts, and kept while switching screens. */
+    listeningOn: Boolean,
+    onListeningChange: (Boolean) -> Unit,
+    /** The club and golfer the next shot is tagged with, kept while switching screens. */
+    selectedClub: String,
+    onClubChange: (String) -> Unit,
+    golfer: Int,
+    onGolferChange: (Int) -> Unit,
     onNavigateToReview: (ShotRecord) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var phase by remember { mutableStateOf(Phase.LISTENING) }
-    var isPaused by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(!listeningOn) }
+    LaunchedEffect(isPaused) { onListeningChange(!isPaused) }
     var isListening by remember { mutableStateOf(false) }
     // The microphone: wanted (isMicEnabled), allowed, and actually open and listening.
     fun hasMicPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -116,7 +125,6 @@ fun TrackerScreen(
     var videoNote by remember { mutableStateOf<String?>(null) }
     var detectedSpots by remember { mutableStateOf<List<ScreenPoint>>(emptyList()) }
 
-    var selectedClub by remember { mutableStateOf(ClubType.DRIVER.displayName) }
     var selectedTracerStyle by remember { mutableStateOf(TracerStyle.PRO_LIME) }
     var detectedPoints by remember { mutableStateOf<List<ScreenPoint>>(emptyList()) }
     var teeLocation by remember { mutableStateOf<ScreenPoint?>(null) }
@@ -402,6 +410,7 @@ fun TrackerScreen(
         val points = (fitted?.tracer ?: emptyList()).onStill()
         val record = ShotRecord(
             club = selectedClub,
+            golfer = golfer,
             tracerStyle = selectedTracerStyle.name,
             launchLocation = gpsLaunch,
             landingLocation = gpsLanding,
@@ -619,6 +628,7 @@ fun TrackerScreen(
                 processor.saveEdits(
                     base.copy(
                         club = selectedClub,
+                        golfer = golfer,
                         tracerStyle = selectedTracerStyle.name,
                         launchLocation = gpsLaunch ?: base.launchLocation,
                         landingLocation = gpsLanding,
@@ -633,6 +643,7 @@ fun TrackerScreen(
                 val bitmap = shotStill ?: previewViewRef?.bitmap ?: Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
                 val record = ShotRecord(
                     club = selectedClub,
+                    golfer = golfer,
                     tracerStyle = selectedTracerStyle.name,
                     launchLocation = gpsLaunch,
                     landingLocation = gpsLanding,
@@ -711,6 +722,8 @@ fun TrackerScreen(
                     distanceMeters = distanceMeters,
                     showShotDistance = isShotRevealed,
                     clubName = selectedClub,
+                    golfer = golfer,
+                    onGolferChange = onGolferChange,
                     gpsLaunch = gpsLaunch,
                     gpsLanding = gpsLanding,
                     onClubClick = { showClubSheet = true },
@@ -779,7 +792,8 @@ fun TrackerScreen(
                                 showingShot && isBallFlightMissing -> "⚠️ Ball flight not found • Listening for the next shot"
                                 showingShot && detectedPoints.any { it.isEstimated } -> "⛳ Shot saved! Dashed part of the tracer is estimated • Listening for the next shot"
                                 showingShot -> "⛳ Shot saved! Tap screen for distance • Listening for the next shot"
-                                else -> "👂 Listening • Just hit: the shot is picked up by the strike's sound and the ball leaving"
+                                isMicOn -> "👂 Listening for shot sound"
+                                else -> "👀 Watching for shots (microphone off)"
                             },
                             color = Color.White,
                             fontSize = 12.sp,
@@ -991,7 +1005,7 @@ fun TrackerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                selectedClub = club.displayName
+                                onClubChange(club.displayName)
                                 showClubSheet = false
                             }
                             .padding(vertical = 10.dp),

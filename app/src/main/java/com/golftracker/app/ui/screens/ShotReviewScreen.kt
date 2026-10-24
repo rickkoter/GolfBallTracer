@@ -210,7 +210,7 @@ fun ShotReviewScreen(
                                     .padding(horizontal = 12.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    shotRecord.club.uppercase(),
+                                    shotRecord.club.uppercase() + (shotRecord.golfer?.let { " • GOLFER $it" } ?: ""),
                                     color = GolfNeonLime,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
