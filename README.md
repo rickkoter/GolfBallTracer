@@ -1,6 +1,6 @@
 # GolfBallTracer
 
-An Android app (with an iPhone version under way) that turns your phone's camera into a golf shot tracer. Set the phone up behind the golfer and just hit: the app hears the club strike the ball, sees the ball leave the tee, and draws a glowing tracer along its flight.
+An Android app (with an iPhone version under way, now tracing live) that turns your phone's camera into a golf shot tracer. Set the phone up behind the golfer and just hit: the app hears the club strike the ball, sees the ball leave the tee, and draws a glowing tracer along its flight.
 
 - **Hands-free shot detection**: a shot starts on the sound of the strike together with the ball leaving. There's nothing to tap.
 - **Ball flight tracing**: the flight is traced live, then again from the shot's full-resolution video, and the better trace is kept.
@@ -16,7 +16,7 @@ See the **[User Manual](USER_MANUAL.md)** for setup, how to record shots, and ev
 |---|---|
 | `shared/` | The tracking code, in Kotlin Multiplatform, used by both apps: finding the ball at the strike, following it, fitting its flight, launch physics, the shot model, and replaying saved recordings. |
 | `app/` | The Android app (Jetpack Compose, CameraX): camera, microphone, GPS, storage and screens. |
-| `iosApp/` | The iPhone app (SwiftUI). For now it plays back recordings saved by the Android app through the shared tracking code. See [iosApp/README.md](iosApp/README.md). |
+| `iosApp/` | The iPhone and iPad app (SwiftUI): traces shots live from the camera and the strike's sound, saves them as recordings, and plays back recordings from either app, all through the shared tracking code. See [iosApp/README.md](iosApp/README.md); for testers, [iosApp/TESTFLIGHT.md](iosApp/TESTFLIGHT.md). |
 
 ## Building
 
@@ -28,4 +28,4 @@ Android, minimum Android 8.0:
 
 The APK is written to `app/build/outputs/apk/debug/golfballtracer-debug.apk`. Unit tests run with `./gradlew :app:testDebugUnitTest`. Saved shot recordings can be replayed with `ShotReplayTest` (see the manual).
 
-iPhone: needs Xcode on a Mac. Open `iosApp/GolfBallTracer.xcodeproj` and run; Xcode builds the shared Kotlin code with Gradle as part of the build.
+iPhone: needs Xcode on a Mac. Open `iosApp/GolfBallTracer.xcodeproj` and run; Xcode builds the shared Kotlin code with Gradle as part of the build. Testers get it through TestFlight (`iosApp/scripts/testflight.sh`, see [iosApp/TESTFLIGHT.md](iosApp/TESTFLIGHT.md)).

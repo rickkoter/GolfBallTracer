@@ -1,7 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The recordings on this phone, newest first; tapping one plays it back through the shot detection.
+/// The recordings on this phone, newest first; tapping one plays it back through the shot detection,
+/// and each can be shared (to send to whoever is looking into the tracking).
 struct RecordingsView: View {
     @EnvironmentObject private var store: RecordingStore
     @State private var choosingFiles = false
@@ -13,7 +14,7 @@ struct RecordingsView: View {
                     ContentUnavailableView {
                         Label("No recordings yet", systemImage: "figure.golf")
                     } description: {
-                        Text("Add recordings saved by the Android app (shot-debug, missed-strike or debug-session zips) with Open, or copy them into GolfBallTracer in the Files app.")
+                        Text("Shots traced on the Tracer tab are saved here. Recordings from the Android app (shot-debug, missed-strike or debug-session zips) can be added with Open, or copied into GolfBallTracer in the Files app.")
                     } actions: {
                         Button("Open recordings") { choosingFiles = true }
                             .buttonStyle(.borderedProminent)
@@ -28,6 +29,13 @@ struct RecordingsView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                            }
+                            .contextMenu {
+                                ShareLink(item: recording.url) { Label("Share", systemImage: "square.and.arrow.up") }
+                            }
+                            .swipeActions(edge: .leading) {
+                                ShareLink(item: recording.url) { Label("Share", systemImage: "square.and.arrow.up") }
+                                    .tint(.blue)
                             }
                         }
                         .onDelete { offsets in offsets.map { store.recordings[$0] }.forEach(store.delete) }

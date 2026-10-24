@@ -6,6 +6,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.LumaSampler
+import com.golftracker.app.tracker.sample
 import java.io.File
 
 /** Decodes a recorded video into [LumaFrame]s, the same kind of frames the camera analysis produces. */

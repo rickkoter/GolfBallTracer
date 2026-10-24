@@ -7,21 +7,37 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0EC6BE5D8C57C18629F6456B /* TrackerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E789B11B87D8F38948E752 /* TrackerModel.swift */; };
+		102EE1E3B78682BBAA514534 /* LiveCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBD317734142EAB57ABB71C /* LiveCheck.swift */; };
 		1453CD7F4902416B5F1DAFD3 /* ReplayAllCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */; };
 		2D528E39483A3B41F0EB4119 /* ReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1729CDF9FF03A83ABB52E612 /* ReplayView.swift */; };
+		480C5A0E83753CAC451FD745 /* ShotDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B788CC60520ED160E736F408 /* ShotDetector.swift */; };
+		5793B447AF681601D74B86F1 /* TracerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */; };
+		66D3866B93411ED73628582E /* TrackerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71876D740116AE04C7DEE /* TrackerView.swift */; };
 		B7546BC037F7429DFB25F035 /* GolfBallTracerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */; };
 		D14DA8C9D2F874E63075B468 /* RecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF551F5D8B42444A73B6D045 /* RecordingsView.swift */; };
+		DB6718D0892EADFC43C2C94F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */; };
 		E622BED165A2D91DBED51FE8 /* RecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C62D8739EEA8630D31EBFC /* RecordingStore.swift */; };
+		EB7992475ABA3E2A8FFF9B8C /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21001C98BC6248825A242E4B /* CameraController.swift */; };
+		F3FDC126868C7AB4F724E5D6 /* StrikeMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76E0539401143765E5D71993 /* StrikeMicrophone.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		1729CDF9FF03A83ABB52E612 /* ReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayView.swift; sourceTree = "<group>"; };
+		21001C98BC6248825A242E4B /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		29E789B11B87D8F38948E752 /* TrackerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerModel.swift; sourceTree = "<group>"; };
 		5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayAllCheck.swift; sourceTree = "<group>"; };
 		5EF30D82658CF25DC47A4A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracerOverlay.swift; sourceTree = "<group>"; };
 		6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GolfBallTracerApp.swift; sourceTree = "<group>"; };
+		76E0539401143765E5D71993 /* StrikeMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrikeMicrophone.swift; sourceTree = "<group>"; };
 		79C62D8739EEA8630D31EBFC /* RecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStore.swift; sourceTree = "<group>"; };
+		8CBD317734142EAB57ABB71C /* LiveCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCheck.swift; sourceTree = "<group>"; };
 		AC2849C54A46D164F0B5BC73 /* GolfBallTracer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GolfBallTracer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ADD71876D740116AE04C7DEE /* TrackerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerView.swift; sourceTree = "<group>"; };
 		AF551F5D8B42444A73B6D045 /* RecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsView.swift; sourceTree = "<group>"; };
+		B788CC60520ED160E736F408 /* ShotDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotDetector.swift; sourceTree = "<group>"; };
+		C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -33,15 +49,31 @@
 			);
 			sourceTree = "<group>";
 		};
+		2455090E19960FCA3DE081CC /* Live */ = {
+			isa = PBXGroup;
+			children = (
+				21001C98BC6248825A242E4B /* CameraController.swift */,
+				8CBD317734142EAB57ABB71C /* LiveCheck.swift */,
+				B788CC60520ED160E736F408 /* ShotDetector.swift */,
+				76E0539401143765E5D71993 /* StrikeMicrophone.swift */,
+				29E789B11B87D8F38948E752 /* TrackerModel.swift */,
+				ADD71876D740116AE04C7DEE /* TrackerView.swift */,
+			);
+			path = Live;
+			sourceTree = "<group>";
+		};
 		B80B00576FF265152ADB1009 /* GolfBallTracer */ = {
 			isa = PBXGroup;
 			children = (
+				C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */,
 				6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */,
 				5EF30D82658CF25DC47A4A5A /* Info.plist */,
 				79C62D8739EEA8630D31EBFC /* RecordingStore.swift */,
 				AF551F5D8B42444A73B6D045 /* RecordingsView.swift */,
 				5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */,
 				1729CDF9FF03A83ABB52E612 /* ReplayView.swift */,
+				6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */,
+				2455090E19960FCA3DE081CC /* Live */,
 			);
 			path = GolfBallTracer;
 			sourceTree = "<group>";
@@ -63,6 +95,7 @@
 			buildPhases = (
 				506FF72637F3D4CC92510B7C /* Build shared Kotlin framework */,
 				E01A916B3D511E3E3D064876 /* Sources */,
+				9BD398E5FBE9CF89B1476494 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -109,6 +142,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		9BD398E5FBE9CF89B1476494 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB6718D0892EADFC43C2C94F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		506FF72637F3D4CC92510B7C /* Build shared Kotlin framework */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -136,11 +180,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EB7992475ABA3E2A8FFF9B8C /* CameraController.swift in Sources */,
 				B7546BC037F7429DFB25F035 /* GolfBallTracerApp.swift in Sources */,
+				102EE1E3B78682BBAA514534 /* LiveCheck.swift in Sources */,
 				E622BED165A2D91DBED51FE8 /* RecordingStore.swift in Sources */,
 				D14DA8C9D2F874E63075B468 /* RecordingsView.swift in Sources */,
 				1453CD7F4902416B5F1DAFD3 /* ReplayAllCheck.swift in Sources */,
 				2D528E39483A3B41F0EB4119 /* ReplayView.swift in Sources */,
+				480C5A0E83753CAC451FD745 /* ShotDetector.swift in Sources */,
+				F3FDC126868C7AB4F724E5D6 /* StrikeMicrophone.swift in Sources */,
+				5793B447AF681601D74B86F1 /* TracerOverlay.swift in Sources */,
+				0EC6BE5D8C57C18629F6456B /* TrackerModel.swift in Sources */,
+				66D3866B93411ED73628582E /* TrackerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -153,6 +204,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5TLF4X4DA2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
@@ -161,6 +213,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 0.2;
 				OTHER_LDFLAGS = (
 					"-framework",
 					GolfTracking,
@@ -177,6 +230,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5TLF4X4DA2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
@@ -185,6 +239,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 0.2;
 				OTHER_LDFLAGS = (
 					"-framework",
 					GolfTracking,

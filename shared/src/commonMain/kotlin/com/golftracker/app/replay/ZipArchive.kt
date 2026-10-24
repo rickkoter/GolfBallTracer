@@ -56,7 +56,7 @@ class ZipArchive(private val bytes: ByteArray) {
     private fun u16(i: Int): Int = (bytes[i].toInt() and 0xFF) or ((bytes[i + 1].toInt() and 0xFF) shl 8)
     private fun u32(i: Int): Long = (u16(i).toLong()) or (u16(i + 2).toLong() shl 16)
 
-    private companion object {
+    internal companion object {
         const val LOCAL_SIGNATURE = 0x04034b50L
         const val CENTRAL_SIGNATURE = 0x02014b50L
         const val END_SIGNATURE = 0x06054b50L

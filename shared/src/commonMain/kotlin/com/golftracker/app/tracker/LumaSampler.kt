@@ -1,12 +1,12 @@
 package com.golftracker.app.tracker
 
-import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Turns the luminance plane of a camera or video frame into a [LumaFrame]: rotated upright, cropped and
- * downsampled so its long side is about [targetLongSide].
+ * Works out how to turn the luminance plane of a camera or video frame into a [LumaFrame]: rotated
+ * upright, cropped and downsampled so its long side is about [targetLongSide]. Each app reads the pixels
+ * from its own kind of buffer ([Layout.offset] gives where each one is).
  *
  * Frames come in sensor orientation (usually landscape) and often wider than what the preview shows.
  * After cropping to what the preview shows, a point's position in the grid is the same as its position
@@ -14,49 +14,30 @@ import kotlin.math.roundToInt
  */
 class LumaSampler(private val targetLongSide: Int) {
 
-    private var geometry: Geometry? = null
+    private var layout: Layout? = null
 
-    private class Geometry(
-        val key: List<Any>,
+    class Layout internal constructor(
+        internal val key: List<Any>,
         val gridWidth: Int,
         val gridHeight: Int,
         /** Buffer offset of a pixel is colOffset[gx] + rowOffset[gy]. */
         val colOffset: IntArray,
         val rowOffset: IntArray
-    )
-
-    /**
-     * Samples [buffer]'s crop rectangle (in buffer pixels). With [uprightAspect] (width / height once
-     * upright), the crop is first narrowed around its center to that shape, the way the preview's
-     * FILL_CENTER crops the camera stream to the screen.
-     */
-    fun sample(
-        buffer: ByteBuffer,
-        cropLeft: Int, cropTop: Int, cropWidth: Int, cropHeight: Int,
-        rotation: Int, rowStride: Int, pixelStride: Int,
-        timestampNs: Long,
-        uprightAspect: Float? = null
-    ): LumaFrame {
-        val g = geometryFor(cropLeft, cropTop, cropWidth, cropHeight, rotation, rowStride, pixelStride, uprightAspect)
-        val data = ByteArray(g.gridWidth * g.gridHeight)
-        val limit = buffer.limit()
-        var i = 0
-        for (gy in 0 until g.gridHeight) {
-            val row = g.rowOffset[gy]
-            for (gx in 0 until g.gridWidth) {
-                val idx = row + g.colOffset[gx]
-                data[i++] = if (idx < limit) buffer.get(idx) else 0
-            }
-        }
-        return LumaFrame(g.gridWidth, g.gridHeight, data, timestampNs)
+    ) {
+        fun offset(gx: Int, gy: Int) = colOffset[gx] + rowOffset[gy]
     }
 
-    private fun geometryFor(
+    /**
+     * Where to sample the buffer's crop rectangle (in buffer pixels). With [uprightAspect] (width / height
+     * once upright), the crop is first narrowed around its center to that shape, the way the preview's
+     * fill-the-screen scaling crops the camera stream to the screen. Kept until the inputs change.
+     */
+    fun layout(
         left0: Int, top0: Int, width0: Int, height0: Int,
-        rotation: Int, rowStride: Int, pixelStride: Int, uprightAspect: Float?
-    ): Geometry {
+        rotation: Int, rowStride: Int, pixelStride: Int, uprightAspect: Float? = null
+    ): Layout {
         val key = listOf(left0, top0, width0, height0, rotation, rowStride, pixelStride, uprightAspect ?: 0f)
-        geometry?.let { if (it.key == key) return it }
+        layout?.let { if (it.key == key) return it }
 
         val sideways = rotation == 90 || rotation == 270
         var left = left0
@@ -105,6 +86,6 @@ class LumaSampler(private val targetLongSide: Int) {
                 else -> (top + uy) * rowStride
             }
         }
-        return Geometry(key, gw, gh, col, row).also { geometry = it }
+        return Layout(key, gw, gh, col, row).also { layout = it }
     }
 }

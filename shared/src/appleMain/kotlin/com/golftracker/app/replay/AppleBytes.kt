@@ -21,3 +21,6 @@ fun LumaFrame.pixels(): NSData = data.usePinned { NSData.create(bytes = it.addre
 
 /** Replays a recording read from a file, for the iOS app. */
 fun replayRecording(contents: NSData): RecordingReplay.Result = RecordingReplay.replay(contents.toByteArray())
+
+/** For Swift: Kotlin bytes as NSData, in one copy. */
+fun ByteArray.toNSData(): NSData = if (isEmpty()) NSData() else usePinned { NSData.create(bytes = it.addressOf(0), length = size.toULong()) }

@@ -17,3 +17,17 @@ actual fun inflateRaw(data: ByteArray, size: Int): ByteArray {
         inflater.end()
     }
 }
+
+actual fun deflateRaw(data: ByteArray): ByteArray {
+    val deflater = java.util.zip.Deflater(java.util.zip.Deflater.BEST_SPEED, true)
+    try {
+        deflater.setInput(data)
+        deflater.finish()
+        val out = java.io.ByteArrayOutputStream(data.size / 2 + 64)
+        val chunk = ByteArray(1 shl 16)
+        while (!deflater.finished()) out.write(chunk, 0, deflater.deflate(chunk))
+        return out.toByteArray()
+    } finally {
+        deflater.end()
+    }
+}
