@@ -13,11 +13,11 @@ object TrajectoryMath {
      * Calculates the Haversine distance between launch and landing GPS coordinates in meters.
      */
     fun calculateGpsDistanceMeters(start: GpsCoordinate, end: GpsCoordinate): Double {
-        val dLat = Math.toRadians(end.latitude - start.latitude)
-        val dLon = Math.toRadians(end.longitude - start.longitude)
+        val dLat = toRadians(end.latitude - start.latitude)
+        val dLon = toRadians(end.longitude - start.longitude)
         
-        val lat1 = Math.toRadians(start.latitude)
-        val lat2 = Math.toRadians(end.latitude)
+        val lat1 = toRadians(start.latitude)
+        val lat2 = toRadians(end.latitude)
 
         val a = sin(dLat / 2).pow(2) + sin(dLon / 2).pow(2) * cos(lat1) * cos(lat2)
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
@@ -46,7 +46,7 @@ object TrajectoryMath {
         launchAngleDegrees: Float,
         apexHeightYards: Float = 30f
     ): Double {
-        val rad = Math.toRadians(launchAngleDegrees.toDouble())
+        val rad = toRadians(launchAngleDegrees.toDouble())
         if (sin(2 * rad) <= 0.0) return 150.0
         
         // Aerodynamic projectile estimation with dimple drag factor (~0.58)
@@ -211,7 +211,7 @@ object TrajectoryMath {
         val endY = viewHeight * 0.55f
 
         val points = mutableListOf<ScreenPoint>()
-        val now = System.currentTimeMillis()
+        val now = currentTimeMillis()
 
         for (i in 0..30) {
             val t = i / 30f

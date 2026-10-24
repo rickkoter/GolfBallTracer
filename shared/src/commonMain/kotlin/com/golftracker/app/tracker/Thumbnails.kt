@@ -9,7 +9,7 @@ import kotlin.math.roundToInt
  * Tiny box-averaged copies of frames. Cheap enough to make for every frame, they show how much is moving
  * and let the same moment be found in the live frames and in the recorded video.
  */
-internal object Thumbnails {
+object Thumbnails {
 
     const val LONG_SIDE = 96
 

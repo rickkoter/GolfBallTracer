@@ -83,7 +83,7 @@ class ShotCaptureSession(
     /** Called on the camera thread once the tapped spot has been checked: the ball found there, or null. */
     private val onTeeMeasured: ShotCaptureSession.(TeeBall?) -> Unit = {}
 ) {
-    private val lock = Any()
+    private val lock = TrackerLock()
 
     private var armed = false
     private var teeX = 0f
@@ -147,14 +147,14 @@ class ShotCaptureSession(
 
     private val launch = TeeLaunchDetector()
 
-    val isArmed: Boolean get() = synchronized(lock) { armed }
+    val isArmed: Boolean get() = lock.withLock { armed }
 
     /**
      * How far the camera has shifted the picture since recording started, as a fraction of the screen.
      * Positions the session reports are relative to the scene at the start, so add this to draw them
      * over what the camera shows now.
      */
-    fun cameraShift(): Pair<Float, Float> = synchronized(lock) {
+    fun cameraShift(): Pair<Float, Float> = lock.withLock {
         val last = history.lastOrNull()?.frame ?: return 0f to 0f
         cameraX.toFloat() / last.width to cameraY.toFloat() / last.height
     }
@@ -164,7 +164,7 @@ class ShotCaptureSession(
      * ball there unless [ball] already gives its measurements. [launchHintNs] is when the impact was
      * heard: used for the launch if the ball isn't seen leaving, or is seen leaving far from it.
      */
-    fun arm(x: Float, y: Float, ball: TeeBall? = null, launchHintNs: Long? = null) = synchronized(lock) {
+    fun arm(x: Float, y: Float, ball: TeeBall? = null, launchHintNs: Long? = null) = lock.withLock {
         armed = true
         cameraX = 0
         cameraY = 0
@@ -194,7 +194,7 @@ class ShotCaptureSession(
     }
 
     /** Stops capturing and returns what was collected. */
-    fun stop(): CapturedShot = synchronized(lock) {
+    fun stop(): CapturedShot = lock.withLock {
         armed = false
         history.clear()
         CapturedShot(
@@ -216,7 +216,7 @@ class ShotCaptureSession(
         }
     }
 
-    fun reset() = synchronized(lock) {
+    fun reset() = lock.withLock {
         armed = false
         history.clear()
         candidates.clear()
@@ -241,7 +241,7 @@ class ShotCaptureSession(
      * Takes the next frame. [shift] is how far the camera moved since the frame before, if already known
      * (content at (x, y) there is at (x + first, y + second) here); otherwise it's worked out.
      */
-    fun process(frame: LumaFrame, shift: Pair<Int, Int>? = null) = synchronized(lock) {
+    fun process(frame: LumaFrame, shift: Pair<Int, Int>? = null) = lock.withLock {
         if (!armed) return
         aspect = frame.width.toFloat() / frame.height
         gridHeight = frame.height
@@ -389,7 +389,7 @@ class ShotCaptureSession(
         val maxThickness = max(2f, 1.5f * ballDiameter)
 
         val visited = visited
-        java.util.Arrays.fill(visited, false)
+        visited.fill(false)
         val stack = stack
         val found = ArrayList<BallCandidate>()
         for (start in 0 until size) {
@@ -474,7 +474,7 @@ class ShotCaptureSession(
  * a shadow or exposure change darkens both. The ball counts as gone after several consecutive frames
  * without it, so a club passing over the ball during a waggle isn't mistaken for a launch.
  */
-internal class TeeLaunchDetector {
+class TeeLaunchDetector {
     var launchTimestampNs: Long? = null
         private set
 

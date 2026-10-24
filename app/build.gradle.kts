@@ -50,6 +50,9 @@ base {
 }
 
 dependencies {
+  // The tracking code, shared with the iOS app.
+  implementation(project(":shared"))
+
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   androidTestImplementation(composeBom)

@@ -2,8 +2,10 @@ package com.golftracker.app.model
 
 import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.TrajectoryMath
+import com.golftracker.app.tracker.currentTimeMillis
+import com.golftracker.app.tracker.fixed
+import com.golftracker.app.tracker.newShotId
 import kotlinx.serialization.Serializable
-import java.util.UUID
 
 enum class ClubType(val displayName: String, val category: String) {
     DRIVER("Driver", "Wood"),
@@ -42,14 +44,14 @@ data class GpsCoordinate(
 data class ScreenPoint(
     val x: Float,
     val y: Float,
-    val timestampMs: Long = System.currentTimeMillis(),
+    val timestampMs: Long = currentTimeMillis(),
     val confidence: Float = 1.0f
 )
 
 @Serializable
 data class ShotRecord(
-    val id: String = UUID.randomUUID().toString(),
-    val timestampMs: Long = System.currentTimeMillis(),
+    val id: String = newShotId(),
+    val timestampMs: Long = currentTimeMillis(),
     val club: String = ClubType.DRIVER.displayName,
     /** Which golfer (1 to [MAX_GOLFERS]) hit it; null for shots from before golfers were tagged. */
     val golfer: Int? = null,
@@ -126,7 +128,7 @@ fun isPixelTracer(points: List<ScreenPoint>): Boolean = points.any { it.x > 5f |
 /** How far a shot went, in yards, and whether that's an estimate rather than measured on GPS. */
 data class ShotDistance(val yards: Double, val estimated: Boolean) {
     /** "142 YDS", or "~142 YDS" for an estimate. */
-    val label: String get() = (if (estimated) "~" else "") + "%.0f YDS".format(yards)
+    val label: String get() = (if (estimated) "~" else "") + "${yards.fixed(0)} YDS"
 }
 
 /**

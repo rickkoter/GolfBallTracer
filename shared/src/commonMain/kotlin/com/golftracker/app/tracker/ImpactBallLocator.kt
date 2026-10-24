@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
  * something bright left. A ball is measured at each such spot in the "before" picture; the one that
  * stands out most from the ground, and vanished whole, wins.
  */
-internal object ImpactBallLocator {
+object ImpactBallLocator {
 
     /**
      * The ball, in the coordinates of frame [referenceIndex] (where a capture should start feeding
@@ -146,12 +146,11 @@ internal object ImpactBallLocator {
 
         // How far each frame is from the reference: the camera's path frame by frame as a guess, then
         // matched directly against the reference so small errors along the way don't add up.
-        var lap = System.nanoTime()
+        var lap = kotlin.time.TimeSource.Monotonic.markNow()
         fun timed(stage: String) {
             if (trace == null) return
-            val now = System.nanoTime()
-            trace("  [%s %.0f ms]".format(stage, (now - lap) / 1e6))
-            lap = now
+            trace("  [$stage ${lap.elapsedNow().inWholeMilliseconds} ms]")
+            lap = kotlin.time.TimeSource.Monotonic.markNow()
         }
         val path = offsets?.takeIf { it.x.size == frames.size } ?: offsetsOf(frames.subList(0, lastIndex + 1))
         val shifts = HashMap<Int, Pair<Int, Int>>()
@@ -160,8 +159,8 @@ internal object ImpactBallLocator {
             FrameShift.estimate(refPrepared, FrameShift.Prepared(frames[i]), path.x[i] - path.x[alignIndex], path.y[i] - path.y[alignIndex], if (short) GROUND_FROM else 0f)
         }
 
-        trace?.invoke("  shifts from %+.2f s: ".format((ref.timestampNs - impactNs) / 1e9) +
-            (beforeIdx + afterIdx).joinToString { i -> shiftOf(i).let { (x, y) -> "%+.2f s (%d,%d)".format((frames[i].timestampNs - impactNs) / 1e9, x, y) } })
+        trace?.invoke("  shifts from ${((ref.timestampNs - impactNs) / 1e9).signed(2)} s: " +
+            (beforeIdx + afterIdx).joinToString { i -> shiftOf(i).let { (x, y) -> "${((frames[i].timestampNs - impactNs) / 1e9).signed(2)} s ($x,$y)" } })
         val medBefore = IntArray(w * h)
         val stable = BooleanArray(w * h)
         (beforeIdx + afterIdx).forEach { shiftOf(it) }
@@ -198,8 +197,8 @@ internal object ImpactBallLocator {
         timed("spots")
         for ((px, py) in spots) {
             val circle = BallMeasure.find(beforeFrame, (px + 0.5f) / w, (py + 0.5f) / h) ?: tinyBall(medBefore, w, h, px, py)
-            fun skip(why: String) = trace?.invoke("  (%3d,%3d) %s: %s".format(px, py,
-                circle?.let { "ball (%.3f, %.3f) r %.1f contrast %.0f".format(it.x, it.y, it.radiusCells, it.contrast) } ?: "no ball", why))
+            fun skip(why: String) = trace?.invoke("  (${px.toString().padStart(3)},${py.toString().padStart(3)}) " +
+                (circle?.let { "ball (${it.x.fixed(3)}, ${it.y.fixed(3)}) r ${it.radiusCells.fixed(1)} contrast ${it.contrast.fixed(0)}" } ?: "no ball") + ": $why")
             if (circle == null || circle.radiusCells > maxRadius) { skip("not ball-sized"); continue }
             // A ball on the tee is rarely right at the side or top of the picture; things passing out of it
             // are. Along the bottom is different: filmed from close behind, the tee is often framed right
@@ -213,22 +212,22 @@ internal object ImpactBallLocator {
             val cx = circle.x * w - 0.5f
             val cy = circle.y * h - 0.5f
             val (gone, meanDrop) = vanished(medBefore, medAfter, w, h, cx, cy, circle.radiusCells)
-            if (gone < MIN_GONE) { skip("only %.2f gone".format(gone)); continue }
+            if (gone < MIN_GONE) { skip("only ${gone.fixed(2)} gone"); continue }
             // A ball on the tee sat still before the swing; a glove or sleeve that went was moving already.
             val steady = steadiness(stable, w, h, cx, cy, circle.radiusCells)
-            if (steady < (if (circle.radiusCells <= TINY_RADIUS) MIN_STEADY_TINY else MIN_STEADY)) { skip("steady only %.2f".format(steady)); continue }
+            if (steady < (if (circle.radiusCells <= TINY_RADIUS) MIN_STEADY_TINY else MIN_STEADY)) { skip("steady only ${steady.fixed(2)}"); continue }
             // ...and the ground around it stayed as it was. Where a body or club came over a bright patch,
             // its surroundings were covered too.
             val around = unchangedAround(medBefore, medAfter, w, h, cx, cy, circle.radiusCells)
-            if (around < MIN_UNCHANGED_AROUND) { skip("surroundings changed (%.2f same)".format(around)); continue }
+            if (around < MIN_UNCHANGED_AROUND) { skip("surroundings changed (${around.fixed(2)} same)"); continue }
             val score = circle.contrast * meanDrop * gone * steady
             val ball = TeeBall(circle.x, circle.y, circle.radiusCells / h)
             if (candidates.any { abs(it.found.ball.x - ball.x) * w < 2 && abs(it.found.ball.y - ball.y) * h < 2 }) { skip("duplicate"); continue }
             val vanishedNs = vanishTime(transition, w, h, ball, before.last(), after.last(), medBefore, medAfter)
             if (heardNs != null && vanishedNs - heardNs !in -MAX_VANISH_BEFORE_STRIKE_NS..MAX_VANISH_AFTER_STRIKE_NS) {
-                skip("went %+.0f ms from the strike".format((vanishedNs - heardNs) / 1e6)); continue
+                skip("went ${((vanishedNs - heardNs) / 1e6).signed(0)} ms from the strike"); continue
             }
-            skip("candidate, score %.0f, went %+.0f ms".format(score, (vanishedNs - (heardNs ?: impactNs)) / 1e6))
+            skip("candidate, score ${score.fixed(0)}, went ${((vanishedNs - (heardNs ?: impactNs)) / 1e6).signed(0)} ms")
             candidates += Candidate(Found(ball, referenceIndex, vanishedNs, circle.contrast), score)
         }
         // Into the picture of the frame captures start from.

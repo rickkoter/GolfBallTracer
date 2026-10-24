@@ -131,7 +131,8 @@ class ShotTriggerTest {
         val shot = events.filterIsInstance<ShotTrigger.Event.Captured>().single().shot
         assertEquals(heard, shot.heardImpact)
         assertNotNull("$label: launch", shot.launchTimestampNs)
-        assertTrue("$label: launch off by ${(shot.launchTimestampNs!! - impactNs) / 1e6} ms", abs(shot.launchTimestampNs - impactNs) <= 2 * frameNs)
+        val launchNs = shot.launchTimestampNs!!
+        assertTrue("$label: launch off by ${(launchNs - impactNs) / 1e6} ms", abs(launchNs - impactNs) <= 2 * frameNs)
         assertTrue("$label: thumbnails kept", shot.thumbnails.size > 100)
 
         val tracer = BallFlightFitter.fit(shot)

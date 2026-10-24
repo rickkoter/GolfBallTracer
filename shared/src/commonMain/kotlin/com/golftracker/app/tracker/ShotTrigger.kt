@@ -1,5 +1,6 @@
 package com.golftracker.app.tracker
 
+import kotlin.concurrent.Volatile
 import kotlin.math.max
 
 /**

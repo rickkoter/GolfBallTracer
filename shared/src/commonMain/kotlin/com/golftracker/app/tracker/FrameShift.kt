@@ -3,9 +3,10 @@ package com.golftracker.app.tracker
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Follows camera shake between frames, so a hand-held or nudged phone's frames can be compared like-for-like. */
-internal object FrameShift {
+object FrameShift {
 
     private const val F = 4
     private const val COARSE_SEARCH = 5
@@ -46,8 +47,8 @@ internal object FrameShift {
         val cw = prev.cw
         val ch = prev.ch
         if (cw != cur.cw || ch != cur.ch || cw == 0 || ch == 0) return 0 to 0
-        val gx = Math.round(guessX.toFloat() / F)
-        val gy = Math.round(guessY.toFloat() / F)
+        val gx = (guessX.toFloat() / F).roundToInt()
+        val gy = (guessY.toFloat() / F).roundToInt()
         var bestX = gx
         var bestY = gy
         var best = Double.MAX_VALUE

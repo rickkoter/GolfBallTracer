@@ -31,3 +31,4 @@ plugins {
 
 rootProject.name = "Golf Ball Visual Tracker"
 include(":app")
+include(":shared")

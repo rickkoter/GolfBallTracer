@@ -86,7 +86,7 @@ object LaunchPhysics {
         val horizontal = hypot(vel[0], vel[1])
         // A real shot: faster than a gentle chip, slower than the longest drives, and going up but not straight up.
         if (hypot(horizontal, vel[2]) !in MIN_SHOT_SPEED_MPS..95.0 || vel[2] <= 0) return emptyList()
-        if (Math.toDegrees(kotlin.math.atan2(vel[2], horizontal)) !in MIN_LAUNCH_ANGLE_DEG..MAX_LAUNCH_ANGLE_DEG) return emptyList()
+        if (toDegrees(kotlin.math.atan2(vel[2], horizontal)) !in MIN_LAUNCH_ANGLE_DEG..MAX_LAUNCH_ANGLE_DEG) return emptyList()
         val dirE = if (horizontal > 1e-6) vel[0] / horizontal else 0.0
         val dirN = if (horizontal > 1e-6) vel[1] / horizontal else 0.0
         val r = camera.deviceToWorld
@@ -175,13 +175,13 @@ object LaunchPhysics {
         val speed = sqrt(horizontal * horizontal + up * up)
         if (speed < 0.5 || speed > 95.0) return null
 
-        val bearing = normalizeDegrees(Math.toDegrees(atan2(east, north)) + declinationDegrees)
+        val bearing = normalizeDegrees(toDegrees(atan2(east, north)) + declinationDegrees)
         val (carry, landingSpeed) = fly(horizontal, up)
         val roll = (landingSpeed * LANDING_SPEED_KEPT).let { it * it / (2 * ROLL_FRICTION * GRAVITY) }
         val total = carry + roll
 
         // The ball started a couple of meters in front of the phone, not at the phone.
-        val offsetBearing = normalizeDegrees(Math.toDegrees(atan2(offset[0], offset[1])) + declinationDegrees)
+        val offsetBearing = normalizeDegrees(toDegrees(atan2(offset[0], offset[1])) + declinationDegrees)
         val tee = destination(phone, offsetBearing, hypot(offset[0], offset[1]))
         return Landing(
             position = destination(tee, bearing, total),
@@ -189,7 +189,7 @@ object LaunchPhysics {
             carryMeters = carry,
             totalMeters = total,
             launchSpeedMps = speed,
-            launchAngleDegrees = Math.toDegrees(atan2(up, horizontal))
+            launchAngleDegrees = toDegrees(atan2(up, horizontal))
         )
     }
 
@@ -229,22 +229,22 @@ object LaunchPhysics {
     /** The point [meters] from [from] along compass [bearingDegrees]. */
     fun destination(from: GpsCoordinate, bearingDegrees: Double, meters: Double): GpsCoordinate {
         val d = meters / EARTH_RADIUS_M
-        val b = Math.toRadians(bearingDegrees)
-        val lat1 = Math.toRadians(from.latitude)
-        val lon1 = Math.toRadians(from.longitude)
+        val b = toRadians(bearingDegrees)
+        val lat1 = toRadians(from.latitude)
+        val lon1 = toRadians(from.longitude)
         val lat2 = asin(sin(lat1) * cos(d) + cos(lat1) * sin(d) * cos(b))
         val lon2 = lon1 + atan2(sin(b) * sin(d) * cos(lat1), cos(d) - sin(lat1) * sin(lat2))
-        return GpsCoordinate(Math.toDegrees(lat2), Math.toDegrees(lon2), from.altitude)
+        return GpsCoordinate(toDegrees(lat2), toDegrees(lon2), from.altitude)
     }
 
     /** Compass bearing from [from] to [to], degrees from true north. */
     fun bearing(from: GpsCoordinate, to: GpsCoordinate): Double {
-        val lat1 = Math.toRadians(from.latitude)
-        val lat2 = Math.toRadians(to.latitude)
-        val dLon = Math.toRadians(to.longitude - from.longitude)
+        val lat1 = toRadians(from.latitude)
+        val lat2 = toRadians(to.latitude)
+        val dLon = toRadians(to.longitude - from.longitude)
         val y = sin(dLon) * cos(lat2)
         val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
-        return normalizeDegrees(Math.toDegrees(atan2(y, x)))
+        return normalizeDegrees(toDegrees(atan2(y, x)))
     }
 
     fun normalizeDegrees(d: Double): Double = ((d % 360) + 360) % 360

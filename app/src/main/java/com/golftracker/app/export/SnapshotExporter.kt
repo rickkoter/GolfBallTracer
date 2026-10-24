@@ -173,11 +173,7 @@ object SnapshotExporter {
         val clubDateString = listOfNotNull(shot.golfer?.let { "GOLFER $it" }, shot.club.uppercase(), formatTimestamp(shot.timestampMs)).joinToString(" • ")
         canvas.drawText(clubDateString, cardLeft + 24f, textY, subTextPaint)
 
-        val gpsString = if (shot.launchLocation != null) {
-            "GPS: %.4f, %.4f".format(shot.launchLocation.latitude, shot.launchLocation.longitude)
-        } else {
-            "GPS Telemetry Active"
-        }
+        val gpsString = shot.launchLocation?.let { "GPS: %.4f, %.4f".format(it.latitude, it.longitude) } ?: "GPS Telemetry Active"
         textY += (cardHeight * 0.16f)
         canvas.drawText(gpsString, cardLeft + 24f, textY, subTextPaint)
     }

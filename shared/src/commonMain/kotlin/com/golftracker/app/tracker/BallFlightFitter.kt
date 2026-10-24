@@ -5,6 +5,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -161,7 +162,7 @@ object BallFlightFitter {
         val t0Ns = shot.candidates.minOf { it.timestampNs }
         val frames = shot.candidates
             .groupBy { it.timestampNs }
-            .toSortedMap()
+            .entries.sortedBy { it.key }
             .map { (ns, list) ->
                 val t = (ns - t0Ns) / 1e9
                 Frame(t, ns, list.map { Obs(t, it.x * aspect, it.y.toDouble(), ns) })
@@ -783,7 +784,7 @@ object BallFlightFitter {
 
     /** Least-squares polynomial coefficients [c0, c1, (c2)]. */
     private fun polyFit(ts: List<Double>, vs: List<Double>, degree: Int): DoubleArray {
-        val rows = ts.map { t -> DoubleArray(degree + 1) { p -> Math.pow(t, p.toDouble()) } }
+        val rows = ts.map { t -> DoubleArray(degree + 1) { p -> t.pow(p.toDouble()) } }
         // Degenerate (e.g. all samples at one time): fall back to the mean value.
         return leastSquares(rows, vs) ?: DoubleArray(degree + 1).also { it[0] = vs.average() }
     }

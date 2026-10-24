@@ -36,9 +36,9 @@ object RecordingCoverage {
             val last = frameTimesNs.last()
             if (first > impactNs - NEEDS_BEFORE_NS) {
                 found += if (first > impactNs) {
-                    "The camera's frames started %.1f s after the strike".format((first - impactNs) / 1e9)
+                    "The camera's frames started ${((first - impactNs) / 1e9).fixed(1)} s after the strike"
                 } else {
-                    "The camera's frames started only %.1f s before the strike".format((impactNs - first) / 1e9)
+                    "The camera's frames started only ${((impactNs - first) / 1e9).fixed(1)} s before the strike"
                 }
             }
             // Breaks in the frames over the launch and the start of the flight.
@@ -57,16 +57,16 @@ object RecordingCoverage {
                 }
             }
             if (at != null) {
-                found += "%.1f s of camera frames were missed, from %+.1f s after the strike".format(missing / 1e9, (at - impactNs) / 1e9)
+                found += "${(missing / 1e9).fixed(1)} s of camera frames were missed, from ${((at - impactNs) / 1e9).signed(1)} s after the strike"
             }
         }
 
         if (videoExpected) {
             when {
                 videoStartNs == null -> found += "No video was saved for this shot"
-                videoStartNs > impactNs -> found += "The video started %.1f s after the strike".format((videoStartNs - impactNs) / 1e9)
+                videoStartNs > impactNs -> found += "The video started ${((videoStartNs - impactNs) / 1e9).fixed(1)} s after the strike"
                 videoStartNs > impactNs - NEEDS_BEFORE_NS ->
-                    found += "The video started only %.1f s before the strike".format((impactNs - videoStartNs) / 1e9)
+                    found += "The video started only ${((impactNs - videoStartNs) / 1e9).fixed(1)} s before the strike"
             }
         }
         return found

@@ -8,7 +8,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /** Measures a golf ball sitting still in a frame: where its center is and how big it is. */
-internal object BallMeasure {
+object BallMeasure {
 
     /** Center in screen fractions, radius in grid cells, and how much brighter it is than the ground. */
     class Circle(val x: Float, val y: Float, val radiusCells: Float, val contrast: Float)
