@@ -2,7 +2,7 @@
 # The tracking code comes from the shared Kotlin module, built by Gradle as part of each Xcode build.
 name: GolfBallTracer
 options:
-  bundleIdPrefix: com.golftracker
+  bundleIdPrefix: com.koterapps
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -21,6 +21,7 @@ targets:
         CFBundleShortVersionString: "0.1"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         # Recordings can be copied in with the Files app or Finder, or opened from another app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: false
@@ -31,14 +32,15 @@ targets:
             LSItemContentTypes: [public.zip-archive]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.golftracker.ios
-        TARGETED_DEVICE_FAMILY: "1"
+        PRODUCT_BUNDLE_IDENTIFIER: com.koterapps.golfballtracer
+        # iPhone and iPad.
+        TARGETED_DEVICE_FAMILY: "1,2"
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         OTHER_LDFLAGS: ["-framework", "GolfTracking"]
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
         CODE_SIGN_STYLE: Automatic
-        # Set to the development team once its Apple ID is added in Xcode › Settings › Accounts.
-        DEVELOPMENT_TEAM: ""
+        # The development team (a free personal team) that signs builds for a connected iPhone or iPad.
+        DEVELOPMENT_TEAM: 5TLF4X4DA2
     preBuildScripts:
       - name: Build shared Kotlin framework
         basedOnDependencyAnalysis: false

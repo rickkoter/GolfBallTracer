@@ -12,6 +12,7 @@ struct GolfBallTracerApp: App {
                 .environmentObject(store)
                 // A recording opened from another app (Files, Drive, Mail) is copied in and listed.
                 .onOpenURL { url in store.importRecordings([url]) }
+                .task { if ReplayAllCheck.requested { ReplayAllCheck.run(store.recordings) } }
         }
     }
 }
