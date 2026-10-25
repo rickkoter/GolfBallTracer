@@ -12,6 +12,25 @@ BUILD=${1:-$(date +%Y%m%d%H%M)}
 ARCHIVE=build/GolfBallTracer.xcarchive
 TEAM=$(awk '/DEVELOPMENT_TEAM:/ {print $2}' project.yml)
 
+# Uploading needs the paid team, signed in to Xcode; a free personal team has no App Store profiles.
+if [[ ! "$TEAM" =~ ^[A-Z0-9]{10}$ ]]; then
+  echo "DEVELOPMENT_TEAM in project.yml is \"$TEAM\": a team ID is 10 letters and digits (developer.apple.com/account › Membership details)."
+  exit 1
+fi
+TEAMS=$(defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier 2>/dev/null || true)
+if ! grep -q "teamID = $TEAM;" <<< "$TEAMS"; then
+  echo "Team $TEAM isn't in Xcode. Add the Apple ID that belongs to the paid Apple Developer Program team in"
+  echo "Xcode › Settings › Accounts, then run this again. Teams Xcode knows:"
+  grep -E "teamID|teamName" <<< "$TEAMS" | sed 's/^ */  /'
+  exit 1
+fi
+if grep -B1 "teamID = $TEAM;" <<< "$TEAMS" | grep -q "isFreeProvisioningTeam = 1"; then
+  # Xcode keeps this from its last look: an individual who joins the paid program keeps the same team ID,
+  # so it can still say "free" until Xcode refreshes. A free team really can't make App Store profiles
+  # ("No profiles for 'com.koterapps.golfballtracer'"); then check developer.apple.com › Membership details.
+  echo "Note: Xcode last saw team $TEAM as a free personal team; carrying on in case it has joined the paid program since."
+fi
+
 xcodegen -q
 rm -rf "$ARCHIVE" build/export
 echo "Archiving build $BUILD for team $TEAM…"

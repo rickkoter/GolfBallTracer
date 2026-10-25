@@ -13,10 +13,13 @@ Part 1 is done once by the app's owner, part 2 for every new build, and part 3 i
    iCloud account): [developer.apple.com/programs/enroll](https://developer.apple.com/programs/enroll).
    Enroll as an individual. It needs two-factor authentication on the Apple ID, and approval usually takes
    from a few minutes to two days.
-2. **Point the project at the paid team.** The paid membership has its own team ID, different from the
-   free personal team (`5TLF4X4DA2`). Find it at [developer.apple.com/account](https://developer.apple.com/account)
-   › Membership details, put it in `iosApp/project.yml` as `DEVELOPMENT_TEAM`, and run `cd iosApp && xcodegen`.
-   Check that **Xcode › Settings › Accounts** shows the Apple ID with the paid team.
+2. **Point the project at the paid team.** Find its team ID at [developer.apple.com/account](https://developer.apple.com/account)
+   › Membership details and put it in `iosApp/project.yml` as `DEVELOPMENT_TEAM` (10 letters and digits,
+   nothing after), then run `cd iosApp && xcodegen`. An individual who joins keeps the free personal team's
+   ID: here it stayed `5TLF4X4DA2`, so nothing needed changing. The Apple ID must be signed in to
+   **Xcode › Settings › Accounts**. Xcode may go on calling the team "Personal Team" for a while; the
+   upload still works: Xcode signs with Apple's cloud-managed distribution certificate and makes the App Store
+   profile itself, so no certificate needs installing on the Mac.
 3. **Register the app in App Store Connect.** Go to [appstoreconnect.apple.com](https://appstoreconnect.apple.com)
    › Apps › **+** › New App:
    - Platform: iOS. Name: anything not already on the App Store, e.g. "GolfBallTracer Beta". Testers see
@@ -37,7 +40,9 @@ iosApp/scripts/testflight.sh
 ```
 
 The script archives the app in Release, signs it for App Store Connect with the Apple ID signed in to
-Xcode, and uploads it. Each upload gets a new build number (the date and time). The version testers see is
+Xcode, and uploads it. It first checks `DEVELOPMENT_TEAM`: it stops if the ID is malformed or no Apple ID in
+Xcode has that team. "No profiles for 'com.koterapps.golfballtracer'" means the team can't make App Store
+profiles: a free team, or a typo in the ID. The first upload was build 202610250750 (25 Oct 2026). Each upload gets a new build number (the date and time). The version testers see is
 `MARKETING_VERSION` in `project.yml` (now 0.2). The app declares that it uses no non-exempt encryption,
 so there's no export-compliance question to answer.
 

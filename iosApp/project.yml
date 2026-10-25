@@ -50,7 +50,8 @@ targets:
         OTHER_LDFLAGS: ["-framework", "GolfTracking"]
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
         CODE_SIGN_STYLE: Automatic
-        # The development team (a free personal team) that signs builds for a connected iPhone or iPad.
+        # The team that signs builds: for a connected iPhone or iPad, and for TestFlight (the paid Apple Developer
+        # Program; joining kept the personal team's ID).
         DEVELOPMENT_TEAM: 5TLF4X4DA2
     preBuildScripts:
       - name: Build shared Kotlin framework
