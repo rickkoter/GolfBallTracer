@@ -43,7 +43,7 @@ The script archives the app in Release, signs it for App Store Connect with the 
 Xcode, and uploads it. It first checks `DEVELOPMENT_TEAM`: it stops if the ID is malformed or no Apple ID in
 Xcode has that team. "No profiles for 'com.koterapps.golfballtracer'" means the team can't make App Store
 profiles: a free team, or a typo in the ID. The first upload was build 202610250750 (25 Oct 2026). Each upload gets a new build number (the date and time). The version testers see is
-`MARKETING_VERSION` in `project.yml` (now 0.2). The app declares that it uses no non-exempt encryption,
+`MARKETING_VERSION` in `project.yml` (now 0.3). The app declares that it uses no non-exempt encryption,
 so there's no export-compliance question to answer.
 
 Apple then processes the build. It shows in App Store Connect › TestFlight after 5 to 30 minutes, and you
