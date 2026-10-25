@@ -23,6 +23,8 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     /// Called on the frame queue for every frame while [wantsFrames] says so.
     var onFrame: ((LumaFrame) -> Void)?
+    /// Called on the frame queue with every frame from the camera, for recording video.
+    var onVideoSample: ((CMSampleBuffer) -> Void)?
     var wantsFrames: () -> Bool = { false }
     /// Frames still waiting for the detector, for pacing.
     var queuedFrames: () -> Int = { 0 }
@@ -58,6 +60,20 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     func stop() {
         sessionQueue.async { if self.session.isRunning { self.session.stopRunning() } }
     }
+
+    /// The light by the camera, on or off (the Flash setting).
+    func setTorch(_ on: Bool) {
+        sessionQueue.async {
+            guard let device = self.device, device.hasTorch else { return }
+            do {
+                try device.lockForConfiguration()
+                device.torchMode = on ? .on : .off
+                device.unlockForConfiguration()
+            } catch {}
+        }
+    }
+
+    var hasTorch: Bool { device?.hasTorch ?? false }
 
     /// The next frame as a colour picture, cropped as the preview shows it, for drawing the shot over.
     func captureStill(_ done: @escaping (CGImage?) -> Void) {
@@ -138,6 +154,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        onVideoSample?(sampleBuffer)
         if let request = stillRequest {
             stillRequest = nil
             let image = still(pixels)

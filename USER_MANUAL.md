@@ -155,4 +155,15 @@ Tap the **Shot Log** tab on the bottom navigation bar to access your saved shots
 
 ---
 
+## iPhone and iPad
+
+The iPhone app works the same way, with the same screens: the Tracer View with its card, settings gear,
+status banner and buttons, and the Shot Log with each shot's review. Shot detection, tracing and the ball
+locator use the same code. Where Android saves to Movies/GolfTracker, the iPhone saves shot videos to
+Photos; where Android saves recordings to Downloads/GolfBallTracer, the iPhone saves them to the app's
+folder in the Files app (On My iPhone › GolfBallTracer). Settings also has **Replay recordings**, which plays
+back recordings from either app through the shot detection. Testers get it through TestFlight.
+
+---
+
 *Enjoy your round and hit 'em straight! ⛳*

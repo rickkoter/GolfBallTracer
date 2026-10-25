@@ -7,6 +7,7 @@ import android.os.SystemClock
 import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotDebugExporter
 import com.golftracker.app.export.ShotTracking
+import com.golftracker.app.export.write
 import com.golftracker.app.export.SnapshotExporter
 import com.golftracker.app.model.GpsCoordinate
 import com.golftracker.app.model.ScreenPoint
@@ -17,6 +18,7 @@ import com.golftracker.app.tracker.LaunchPhysics
 import com.golftracker.app.tracker.LumaFrame
 import com.golftracker.app.tracker.ShotDebugArchive
 import com.golftracker.app.video.ShotVideoRecorder
+import com.golftracker.app.video.VideoFrameReader
 import com.golftracker.app.video.VideoRetracer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -164,7 +166,7 @@ class ShotProcessor(private val context: Context, private val repository: ShotRe
         } else {
             val result = retraceLock.withLock {
                 try {
-                    VideoRetracer.retrace(video, videoStartNs, shot, new.camera)
+                    VideoRetracer.retrace(VideoFrameReader(video), videoStartNs, shot, new.camera)
                 } catch (e: Exception) {
                     e.printStackTrace()
                     null

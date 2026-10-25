@@ -1,20 +1,23 @@
 package com.golftracker.app.replay
 
 /**
- * Writes a zip in memory, each entry deflated, for saving recordings the way the Android app does.
+ * Writes a zip in memory, each entry deflated (or stored as it is), for saving recordings the way the
+ * Android app does.
  * Every entry is complete when added, so sizes and checksums go in its header (no trailing descriptors).
  */
 class ZipWriter {
-    private class Written(val name: ByteArray, val crc: Int, val compressedSize: Int, val size: Int, val offset: Int)
+    private class Written(val name: ByteArray, val method: Int, val crc: Int, val compressedSize: Int, val size: Int, val offset: Int)
 
     private val out = Bytes()
     private val written = ArrayList<Written>()
 
-    fun add(name: String, data: ByteArray) {
-        val packed = deflateRaw(data)
-        val entry = Written(name.encodeToByteArray(), crc32(data), packed.size, data.size, out.size)
+    /** Adds an entry; [compress] false stores it as it is (for video, which is compressed already). */
+    fun add(name: String, data: ByteArray, compress: Boolean = true) {
+        val packed = if (compress) deflateRaw(data) else data
+        val method = if (compress) ZipArchive.DEFLATED else ZipArchive.STORED
+        val entry = Written(name.encodeToByteArray(), method, crc32(data), packed.size, data.size, out.size)
         out.u32(ZipArchive.LOCAL_SIGNATURE.toInt())
-        out.u16(VERSION); out.u16(0); out.u16(ZipArchive.DEFLATED); out.u16(DOS_TIME); out.u16(DOS_DATE)
+        out.u16(VERSION); out.u16(0); out.u16(method); out.u16(DOS_TIME); out.u16(DOS_DATE)
         out.u32(entry.crc); out.u32(entry.compressedSize); out.u32(entry.size)
         out.u16(entry.name.size); out.u16(0)
         out.put(entry.name)
@@ -26,7 +29,7 @@ class ZipWriter {
         val directory = out.size
         for (e in written) {
             out.u32(ZipArchive.CENTRAL_SIGNATURE.toInt())
-            out.u16(VERSION); out.u16(VERSION); out.u16(0); out.u16(ZipArchive.DEFLATED); out.u16(DOS_TIME); out.u16(DOS_DATE)
+            out.u16(VERSION); out.u16(VERSION); out.u16(0); out.u16(e.method); out.u16(DOS_TIME); out.u16(DOS_DATE)
             out.u32(e.crc); out.u32(e.compressedSize); out.u32(e.size)
             out.u16(e.name.size); out.u16(0); out.u16(0); out.u16(0); out.u16(0); out.u32(0); out.u32(e.offset)
             out.put(e.name)
@@ -69,7 +72,7 @@ class ZipWriter {
         fun toByteArray() = data.copyOf(size)
     }
 
-    private companion object {
+    internal companion object {
         const val VERSION = 20
         // 1 Jan 1980, the earliest a zip can say: the recording's own name carries when it was made.
         const val DOS_TIME = 0
@@ -81,9 +84,12 @@ class ZipWriter {
             c
         }
 
-        fun crc32(data: ByteArray): Int {
-            var c = -1
-            for (b in data) c = CRC_TABLE[(c xor b.toInt()) and 0xFF] xor (c ushr 8)
+        fun crc32(data: ByteArray): Int = crc32Update(0, data, data.size)
+
+        /** Carries a CRC-32 on over [count] more bytes, for data read in pieces. */
+        fun crc32Update(crc: Int, data: ByteArray, count: Int): Int {
+            var c = crc.inv()
+            for (i in 0 until count) c = CRC_TABLE[(c xor data[i].toInt()) and 0xFF] xor (c ushr 8)
             return c.inv()
         }
     }

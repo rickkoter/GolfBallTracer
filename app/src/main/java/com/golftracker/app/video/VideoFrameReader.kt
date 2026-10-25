@@ -10,14 +10,11 @@ import com.golftracker.app.tracker.sample
 import java.io.File
 
 /** Decodes a recorded video into [LumaFrame]s, the same kind of frames the camera analysis produces. */
-class VideoFrameReader(private val file: File) {
+class VideoFrameReader(private val file: File) : VideoFrameSource {
 
-    /** [rotation] is how far frames are turned to stand upright; [width]/[height] are as stored. */
-    class Info(val durationUs: Long, val rotation: Int, val width: Int, val height: Int, val frameRate: Double?)
-
-    fun info(): Info? = withTrack { extractor, track ->
+    override fun info(): VideoFrameSource.Info? = withTrack { extractor, track ->
         val format = extractor.getTrackFormat(track)
-        Info(
+        VideoFrameSource.Info(
             durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L,
             rotation = rotationOf(format),
             width = format.getInteger(MediaFormat.KEY_WIDTH),
@@ -26,14 +23,9 @@ class VideoFrameReader(private val file: File) {
         )
     }
 
-    /**
-     * Calls [onFrame] for each frame from [fromUs] to [toUs] (video time), sampled with a long side of
-     * [longSide], turned upright by [rotation] (the file's own when null) and center-cropped to
-     * [uprightAspect]. Frame timestamps are the video time in nanoseconds. Returns how many were read.
-     */
-    fun read(
+    override fun read(
         fromUs: Long, toUs: Long, longSide: Int, uprightAspect: Float,
-        rotation: Int? = null, onFrame: (LumaFrame) -> Unit
+        rotation: Int?, onFrame: (LumaFrame) -> Unit
     ): Int = withTrack { extractor, track ->
         val format = extractor.getTrackFormat(track)
         val turn = rotation ?: rotationOf(format)

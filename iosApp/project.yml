@@ -27,6 +27,8 @@ targets:
         UIRequiresFullScreen: true
         NSCameraUsageDescription: GolfBallTracer films your shot to find the ball leaving the tee and trace its flight.
         NSMicrophoneUsageDescription: GolfBallTracer listens for the sound of the club striking the ball, to know when a shot starts.
+        NSLocationWhenInUseUsageDescription: GolfBallTracer uses GPS to measure your shots and point you to where the ball landed.
+        NSPhotoLibraryAddUsageDescription: GolfBallTracer saves shot videos with the tracer drawn in to your photos.
         # Only Apple's own encryption (HTTPS and the like) is used, so TestFlight needs no export paperwork.
         ITSAppUsesNonExemptEncryption: false
         # Recordings can be copied in with the Files app or Finder, or opened from another app.
@@ -49,6 +51,8 @@ targets:
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         OTHER_LDFLAGS: ["-framework", "GolfTracking"]
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+        # The shared Kotlin framework is built for Apple silicon simulators only.
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         CODE_SIGN_STYLE: Automatic
         # The team that signs builds: for a connected iPhone or iPad, and for TestFlight (the paid Apple Developer
         # Program; joining kept the personal team's ID).

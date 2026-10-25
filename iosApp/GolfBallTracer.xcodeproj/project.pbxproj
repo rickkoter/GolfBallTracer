@@ -9,38 +9,79 @@
 /* Begin PBXBuildFile section */
 		0EC6BE5D8C57C18629F6456B /* TrackerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E789B11B87D8F38948E752 /* TrackerModel.swift */; };
 		102EE1E3B78682BBAA514534 /* LiveCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CBD317734142EAB57ABB71C /* LiveCheck.swift */; };
-		1453CD7F4902416B5F1DAFD3 /* ReplayAllCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */; };
-		2D528E39483A3B41F0EB4119 /* ReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1729CDF9FF03A83ABB52E612 /* ReplayView.swift */; };
+		152A8B1662671FF842A4388D /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC8BC47029525766C77A7FD /* SettingsSheet.swift */; };
+		17F7A1A54102B80FF47F33F0 /* TracerDrawing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886C1DF533B3439458C028B3 /* TracerDrawing.swift */; };
+		23835377AE65A158ECC1E859 /* ShotLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4A0F968480196EBDF48C00 /* ShotLogView.swift */; };
+		3C2AD49A5A3BCD2286DCC1C8 /* ReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289BC4A5EF8298D4CCF78AF2 /* ReplayView.swift */; };
+		429B92D56FB9E46BDE3F3021 /* ShotVideoRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683DF7505E5BCEF520B47C9F /* ShotVideoRecorder.swift */; };
+		451B540B5BE2A6011D7807E7 /* GolfBallTracerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0202A54D9401EB4B04B25CDA /* GolfBallTracerApp.swift */; };
+		4786C1315957E779019655E1 /* RecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E026A13D94E48AC60FE373C3 /* RecordingStore.swift */; };
+		480077F440EE257AD0A9E4CD /* TracerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9295DC5A8B8BC712EC08FF /* TracerOverlay.swift */; };
 		480C5A0E83753CAC451FD745 /* ShotDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B788CC60520ED160E736F408 /* ShotDetector.swift */; };
-		5793B447AF681601D74B86F1 /* TracerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */; };
-		66D3866B93411ED73628582E /* TrackerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD71876D740116AE04C7DEE /* TrackerView.swift */; };
-		B7546BC037F7429DFB25F035 /* GolfBallTracerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */; };
-		D14DA8C9D2F874E63075B468 /* RecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF551F5D8B42444A73B6D045 /* RecordingsView.swift */; };
+		5FB07304DBFF24E4BBB851BD /* TrackerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 058858A2AB0ADB3E990611D5 /* TrackerView.swift */; };
+		60A926663D3B515C865F1325 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31652E5CAE679835EAB28D8D /* LocationService.swift */; };
+		649F960BB903E1252E579D81 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810A557057F32E64A92777C4 /* Theme.swift */; };
+		7C842580E4661DBEC2E008AE /* DebugRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1726300CA98299D047FE28 /* DebugRecorder.swift */; };
+		8781C8D877056C91C12A5C2F /* ShotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD9D6697CC43CE164D284F4 /* ShotStore.swift */; };
+		89935404DAAD0528D168F9EB /* BallLocatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F946028010F6FA100A53A29F /* BallLocatorView.swift */; };
+		93FB20DD41456E1327F0D9AC /* DevChecks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C54E645FF16499ED694C46D /* DevChecks.swift */; };
+		AF14E432E12C3C42E32E7B5E /* ShotProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EA7418A6FFD0B55537D41D /* ShotProcessor.swift */; };
+		B3685F0C57A1AE2C71BB4573 /* TelemetryHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FACD2291B01D1A9A830CAAB /* TelemetryHUD.swift */; };
+		B569BB808B1F1D135DD1B122 /* AssetFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E3D2F8916865D82BE861B51 /* AssetFrameSource.swift */; };
+		BDB97515D39D871DA698BCF9 /* ReplayAllCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C35B7199BC592A030F39888 /* ReplayAllCheck.swift */; };
+		C31D988BF7D8AAD0E55007CD /* ShotReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4970D3272383D640C10132C3 /* ShotReviewView.swift */; };
 		DB6718D0892EADFC43C2C94F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */; };
-		E622BED165A2D91DBED51FE8 /* RecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C62D8739EEA8630D31EBFC /* RecordingStore.swift */; };
+		EB6FFC6121A5DD9C9084EF99 /* RecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87832C6DEF83BA7F696C35E7 /* RecordingsView.swift */; };
 		EB7992475ABA3E2A8FFF9B8C /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21001C98BC6248825A242E4B /* CameraController.swift */; };
 		F3FDC126868C7AB4F724E5D6 /* StrikeMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76E0539401143765E5D71993 /* StrikeMicrophone.swift */; };
+		F5CFB62F78B246E88F83EF8F /* TracerCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975104C28234CB438D3165A5 /* TracerCanvasView.swift */; };
+		F8C2C7A2C530178221C224F1 /* ShotExports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE71938CEE167FBEFC94D88 /* ShotExports.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1729CDF9FF03A83ABB52E612 /* ReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayView.swift; sourceTree = "<group>"; };
+		0202A54D9401EB4B04B25CDA /* GolfBallTracerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GolfBallTracerApp.swift; sourceTree = "<group>"; };
+		058858A2AB0ADB3E990611D5 /* TrackerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerView.swift; sourceTree = "<group>"; };
+		0AD9D6697CC43CE164D284F4 /* ShotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotStore.swift; sourceTree = "<group>"; };
+		0C4A0F968480196EBDF48C00 /* ShotLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotLogView.swift; sourceTree = "<group>"; };
+		0CE71938CEE167FBEFC94D88 /* ShotExports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotExports.swift; sourceTree = "<group>"; };
+		1C35B7199BC592A030F39888 /* ReplayAllCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayAllCheck.swift; sourceTree = "<group>"; };
+		1FACD2291B01D1A9A830CAAB /* TelemetryHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryHUD.swift; sourceTree = "<group>"; };
 		21001C98BC6248825A242E4B /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		289BC4A5EF8298D4CCF78AF2 /* ReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayView.swift; sourceTree = "<group>"; };
 		29E789B11B87D8F38948E752 /* TrackerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerModel.swift; sourceTree = "<group>"; };
-		5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayAllCheck.swift; sourceTree = "<group>"; };
+		31652E5CAE679835EAB28D8D /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		4970D3272383D640C10132C3 /* ShotReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotReviewView.swift; sourceTree = "<group>"; };
+		4E1726300CA98299D047FE28 /* DebugRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRecorder.swift; sourceTree = "<group>"; };
 		5EF30D82658CF25DC47A4A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracerOverlay.swift; sourceTree = "<group>"; };
-		6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GolfBallTracerApp.swift; sourceTree = "<group>"; };
+		66EA7418A6FFD0B55537D41D /* ShotProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotProcessor.swift; sourceTree = "<group>"; };
+		683DF7505E5BCEF520B47C9F /* ShotVideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotVideoRecorder.swift; sourceTree = "<group>"; };
+		6C54E645FF16499ED694C46D /* DevChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevChecks.swift; sourceTree = "<group>"; };
+		6E3D2F8916865D82BE861B51 /* AssetFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetFrameSource.swift; sourceTree = "<group>"; };
+		6F9295DC5A8B8BC712EC08FF /* TracerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracerOverlay.swift; sourceTree = "<group>"; };
 		76E0539401143765E5D71993 /* StrikeMicrophone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrikeMicrophone.swift; sourceTree = "<group>"; };
-		79C62D8739EEA8630D31EBFC /* RecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStore.swift; sourceTree = "<group>"; };
+		810A557057F32E64A92777C4 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		87832C6DEF83BA7F696C35E7 /* RecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsView.swift; sourceTree = "<group>"; };
+		886C1DF533B3439458C028B3 /* TracerDrawing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracerDrawing.swift; sourceTree = "<group>"; };
 		8CBD317734142EAB57ABB71C /* LiveCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCheck.swift; sourceTree = "<group>"; };
+		975104C28234CB438D3165A5 /* TracerCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracerCanvasView.swift; sourceTree = "<group>"; };
 		AC2849C54A46D164F0B5BC73 /* GolfBallTracer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GolfBallTracer.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		ADD71876D740116AE04C7DEE /* TrackerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerView.swift; sourceTree = "<group>"; };
-		AF551F5D8B42444A73B6D045 /* RecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingsView.swift; sourceTree = "<group>"; };
 		B788CC60520ED160E736F408 /* ShotDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotDetector.swift; sourceTree = "<group>"; };
 		C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E026A13D94E48AC60FE373C3 /* RecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStore.swift; sourceTree = "<group>"; };
+		EBC8BC47029525766C77A7FD /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		F946028010F6FA100A53A29F /* BallLocatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BallLocatorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		020F12A85AF832E19CBA461B /* Common */ = {
+			isa = PBXGroup;
+			children = (
+				F946028010F6FA100A53A29F /* BallLocatorView.swift */,
+				6F9295DC5A8B8BC712EC08FF /* TracerOverlay.swift */,
+			);
+			path = Common;
+			sourceTree = "<group>";
+		};
 		02BA852DB4834172D858E7EB = {
 			isa = PBXGroup;
 			children = (
@@ -49,33 +90,128 @@
 			);
 			sourceTree = "<group>";
 		};
+		0CC217F6104CC6BDED4C86FA /* Processing */ = {
+			isa = PBXGroup;
+			children = (
+				6E3D2F8916865D82BE861B51 /* AssetFrameSource.swift */,
+				66EA7418A6FFD0B55537D41D /* ShotProcessor.swift */,
+			);
+			path = Processing;
+			sourceTree = "<group>";
+		};
 		2455090E19960FCA3DE081CC /* Live */ = {
 			isa = PBXGroup;
 			children = (
 				21001C98BC6248825A242E4B /* CameraController.swift */,
 				8CBD317734142EAB57ABB71C /* LiveCheck.swift */,
 				B788CC60520ED160E736F408 /* ShotDetector.swift */,
+				683DF7505E5BCEF520B47C9F /* ShotVideoRecorder.swift */,
 				76E0539401143765E5D71993 /* StrikeMicrophone.swift */,
 				29E789B11B87D8F38948E752 /* TrackerModel.swift */,
-				ADD71876D740116AE04C7DEE /* TrackerView.swift */,
 			);
 			path = Live;
+			sourceTree = "<group>";
+		};
+		2DE4BCD38DD42190A705E65A /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				020F12A85AF832E19CBA461B /* Common */,
+				C88BAA4ECE435702BC0A39D0 /* Log */,
+				69655AECC3EDF391AFD12004 /* Tracker */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		69655AECC3EDF391AFD12004 /* Tracker */ = {
+			isa = PBXGroup;
+			children = (
+				EBC8BC47029525766C77A7FD /* SettingsSheet.swift */,
+				1FACD2291B01D1A9A830CAAB /* TelemetryHUD.swift */,
+				975104C28234CB438D3165A5 /* TracerCanvasView.swift */,
+				058858A2AB0ADB3E990611D5 /* TrackerView.swift */,
+			);
+			path = Tracker;
+			sourceTree = "<group>";
+		};
+		795A9350069E39228CDE939A /* Store */ = {
+			isa = PBXGroup;
+			children = (
+				0AD9D6697CC43CE164D284F4 /* ShotStore.swift */,
+			);
+			path = Store;
+			sourceTree = "<group>";
+		};
+		7E5ED9AF684BC31036655178 /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				4E1726300CA98299D047FE28 /* DebugRecorder.swift */,
+				6C54E645FF16499ED694C46D /* DevChecks.swift */,
+			);
+			path = Debug;
+			sourceTree = "<group>";
+		};
+		82900237A8C4AA9D3C40582E /* Recordings */ = {
+			isa = PBXGroup;
+			children = (
+				E026A13D94E48AC60FE373C3 /* RecordingStore.swift */,
+				87832C6DEF83BA7F696C35E7 /* RecordingsView.swift */,
+				1C35B7199BC592A030F39888 /* ReplayAllCheck.swift */,
+				289BC4A5EF8298D4CCF78AF2 /* ReplayView.swift */,
+			);
+			path = Recordings;
+			sourceTree = "<group>";
+		};
+		8F9445B5E069F005A7A58458 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0202A54D9401EB4B04B25CDA /* GolfBallTracerApp.swift */,
+				810A557057F32E64A92777C4 /* Theme.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		974F7A348B10B9C916C0AD2A /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				0CE71938CEE167FBEFC94D88 /* ShotExports.swift */,
+				886C1DF533B3439458C028B3 /* TracerDrawing.swift */,
+			);
+			path = Export;
 			sourceTree = "<group>";
 		};
 		B80B00576FF265152ADB1009 /* GolfBallTracer */ = {
 			isa = PBXGroup;
 			children = (
 				C407E91EBB1447CBCF6A2B3A /* Assets.xcassets */,
-				6D0C8F0C501D0F1FF9C963E8 /* GolfBallTracerApp.swift */,
 				5EF30D82658CF25DC47A4A5A /* Info.plist */,
-				79C62D8739EEA8630D31EBFC /* RecordingStore.swift */,
-				AF551F5D8B42444A73B6D045 /* RecordingsView.swift */,
-				5996A7691D324B7015A81D15 /* ReplayAllCheck.swift */,
-				1729CDF9FF03A83ABB52E612 /* ReplayView.swift */,
-				6C59C09C8EC948ED04CE78AB /* TracerOverlay.swift */,
+				8F9445B5E069F005A7A58458 /* App */,
+				7E5ED9AF684BC31036655178 /* Debug */,
+				974F7A348B10B9C916C0AD2A /* Export */,
 				2455090E19960FCA3DE081CC /* Live */,
+				E7BAAEB74FA3589622496F58 /* Location */,
+				0CC217F6104CC6BDED4C86FA /* Processing */,
+				82900237A8C4AA9D3C40582E /* Recordings */,
+				795A9350069E39228CDE939A /* Store */,
+				2DE4BCD38DD42190A705E65A /* UI */,
 			);
 			path = GolfBallTracer;
+			sourceTree = "<group>";
+		};
+		C88BAA4ECE435702BC0A39D0 /* Log */ = {
+			isa = PBXGroup;
+			children = (
+				0C4A0F968480196EBDF48C00 /* ShotLogView.swift */,
+				4970D3272383D640C10132C3 /* ShotReviewView.swift */,
+			);
+			path = Log;
+			sourceTree = "<group>";
+		};
+		E7BAAEB74FA3589622496F58 /* Location */ = {
+			isa = PBXGroup;
+			children = (
+				31652E5CAE679835EAB28D8D /* LocationService.swift */,
+			);
+			path = Location;
 			sourceTree = "<group>";
 		};
 		EB6FA1827E5E3965D4A29A53 /* Products */ = {
@@ -180,18 +316,34 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B569BB808B1F1D135DD1B122 /* AssetFrameSource.swift in Sources */,
+				89935404DAAD0528D168F9EB /* BallLocatorView.swift in Sources */,
 				EB7992475ABA3E2A8FFF9B8C /* CameraController.swift in Sources */,
-				B7546BC037F7429DFB25F035 /* GolfBallTracerApp.swift in Sources */,
+				7C842580E4661DBEC2E008AE /* DebugRecorder.swift in Sources */,
+				93FB20DD41456E1327F0D9AC /* DevChecks.swift in Sources */,
+				451B540B5BE2A6011D7807E7 /* GolfBallTracerApp.swift in Sources */,
 				102EE1E3B78682BBAA514534 /* LiveCheck.swift in Sources */,
-				E622BED165A2D91DBED51FE8 /* RecordingStore.swift in Sources */,
-				D14DA8C9D2F874E63075B468 /* RecordingsView.swift in Sources */,
-				1453CD7F4902416B5F1DAFD3 /* ReplayAllCheck.swift in Sources */,
-				2D528E39483A3B41F0EB4119 /* ReplayView.swift in Sources */,
+				60A926663D3B515C865F1325 /* LocationService.swift in Sources */,
+				4786C1315957E779019655E1 /* RecordingStore.swift in Sources */,
+				EB6FFC6121A5DD9C9084EF99 /* RecordingsView.swift in Sources */,
+				BDB97515D39D871DA698BCF9 /* ReplayAllCheck.swift in Sources */,
+				3C2AD49A5A3BCD2286DCC1C8 /* ReplayView.swift in Sources */,
+				152A8B1662671FF842A4388D /* SettingsSheet.swift in Sources */,
 				480C5A0E83753CAC451FD745 /* ShotDetector.swift in Sources */,
+				F8C2C7A2C530178221C224F1 /* ShotExports.swift in Sources */,
+				23835377AE65A158ECC1E859 /* ShotLogView.swift in Sources */,
+				AF14E432E12C3C42E32E7B5E /* ShotProcessor.swift in Sources */,
+				C31D988BF7D8AAD0E55007CD /* ShotReviewView.swift in Sources */,
+				8781C8D877056C91C12A5C2F /* ShotStore.swift in Sources */,
+				429B92D56FB9E46BDE3F3021 /* ShotVideoRecorder.swift in Sources */,
 				F3FDC126868C7AB4F724E5D6 /* StrikeMicrophone.swift in Sources */,
-				5793B447AF681601D74B86F1 /* TracerOverlay.swift in Sources */,
+				B3685F0C57A1AE2C71BB4573 /* TelemetryHUD.swift in Sources */,
+				649F960BB903E1252E579D81 /* Theme.swift in Sources */,
+				F5CFB62F78B246E88F83EF8F /* TracerCanvasView.swift in Sources */,
+				17F7A1A54102B80FF47F33F0 /* TracerDrawing.swift in Sources */,
+				480077F440EE257AD0A9E4CD /* TracerOverlay.swift in Sources */,
 				0EC6BE5D8C57C18629F6456B /* TrackerModel.swift in Sources */,
-				66D3866B93411ED73628582E /* TrackerView.swift in Sources */,
+				5FB07304DBFF24E4BBB851BD /* TrackerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,6 +359,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5TLF4X4DA2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = GolfBallTracer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -233,6 +386,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5TLF4X4DA2;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = GolfBallTracer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

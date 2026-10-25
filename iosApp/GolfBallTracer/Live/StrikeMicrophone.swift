@@ -12,6 +12,11 @@ final class StrikeMicrophone {
 
     /// Called on the audio thread with when the strike happened (ns) and how far above the background it was (dB).
     var onStrike: ((Int64, Float) -> Void)?
+    /// Called on the audio thread with every buffer and when its first sample was captured (ns), for recordings.
+    var onAudio: ((AVAudioPCMBuffer, Int64) -> Void)?
+
+    /// The loudest sound in the last moment, in dB below full scale, for the level meter.
+    var levelDb: Float { listener?.levelDb ?? StrikeListener.companion.SILENCE_DB }
 
     static func requestAccess(_ done: @escaping (Bool) -> Void) {
         AVAudioApplication.requestRecordPermission { granted in DispatchQueue.main.async { done(granted) } }
@@ -54,6 +59,7 @@ final class StrikeMicrophone {
                 // Without a time, take it that the last sample was captured just now.
                 firstNs = Int64(AVAudioTime.seconds(forHostTime: mach_absolute_time()) * 1e9) - Int64(Double(count) / rate * 1e9)
             }
+            self?.onAudio?(buffer, firstNs)
             for strike in listener.feed(samples: samples, count: Int32(count), firstSampleNs: firstNs) {
                 self?.onStrike?(strike.timestampNs, strike.decibels)
             }

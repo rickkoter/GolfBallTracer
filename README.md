@@ -1,6 +1,6 @@
 # GolfBallTracer
 
-An Android app (with an iPhone version under way, now tracing live) that turns your phone's camera into a golf shot tracer. Set the phone up behind the golfer and just hit: the app hears the club strike the ball, sees the ball leave the tee, and draws a glowing tracer along its flight.
+An Android and iPhone app that turns your phone's camera into a golf shot tracer. Set the phone up behind the golfer and just hit: the app hears the club strike the ball, sees the ball leave the tee, and draws a glowing tracer along its flight.
 
 - **Hands-free shot detection**: a shot starts on the sound of the strike together with the ball leaving. There's nothing to tap.
 - **Ball flight tracing**: the flight is traced live, then again from the shot's full-resolution video, and the better trace is kept.
@@ -14,9 +14,9 @@ See the **[User Manual](USER_MANUAL.md)** for setup, how to record shots, and ev
 
 | Folder | What's in it |
 |---|---|
-| `shared/` | The tracking code, in Kotlin Multiplatform, used by both apps: finding the ball at the strike, following it, fitting its flight, launch physics, the shot model, and replaying saved recordings. |
+| `shared/` | The tracking code, in Kotlin Multiplatform, used by both apps: hearing the strike, finding the ball at the strike, following it, fitting its flight, tracing again from the video, launch physics, the shot model and file formats, and replaying saved recordings. |
 | `app/` | The Android app (Jetpack Compose, CameraX): camera, microphone, GPS, storage and screens. |
-| `iosApp/` | The iPhone and iPad app (SwiftUI): traces shots live from the camera and the strike's sound, saves them as recordings, and plays back recordings from either app, all through the shared tracking code. See [iosApp/README.md](iosApp/README.md); for testers, [iosApp/TESTFLIGHT.md](iosApp/TESTFLIGHT.md). |
+| `iosApp/` | The iPhone and iPad app (SwiftUI), with the same features and layout as the Android app (tracer view, settings, debug recordings, demo flight, shot log and review, exports), all through the shared tracking code. See [iosApp/README.md](iosApp/README.md); for testers, [iosApp/TESTFLIGHT.md](iosApp/TESTFLIGHT.md). |
 
 ## Building
 

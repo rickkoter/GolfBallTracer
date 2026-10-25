@@ -1,5 +1,7 @@
 package com.golftracker.app
 
+import com.golftracker.app.debug.writeWavHeader
+import com.golftracker.app.debug.read
 import com.golftracker.app.debug.DebugSession
 import com.golftracker.app.tracker.BallFlightFitter
 import com.golftracker.app.tracker.LaunchPhysics
@@ -74,7 +76,7 @@ class DebugSessionReplayTest {
             println("  %.1f s, %d frames (%d dropped), sound %s, video %s".format(
                 (info.endedNs - info.startedNs) / 1e9, info.frameCount, info.framesDropped,
                 info.audioSampleRate?.let { "%d Hz %.1f s".format(it, info.audioSamples.toDouble() / it) } ?: "none",
-                if (info.videoStartNs != null) "from ${at(info.videoStartNs)}" else "none"))
+                info.videoStartNs?.let { "from ${at(it)}" } ?: "none"))
             println("  What the app did:")
             info.events.forEach { println("    ${at(it.timestampNs)}  ${it.kind}  ${it.detail}") }
 

@@ -3,33 +3,50 @@
 The iPhone version of GolfBallTracer, in SwiftUI. Its tracking code is the Android app's own, shared from
 Kotlin (`../shared`) and built into `GolfTracking.framework` by Gradle as part of each Xcode build.
 
-**What it does so far:**
+**What it does:** everything the Android app does, laid out the same way, with the same tracking code.
 
-- **Tracer tab, live:** the back camera fills the screen with the club and golfer at the top. Tap
-  **Start listening** and hit: the strike is heard on the microphone, the ball is seen leaving the tee, and
-  the flight is followed and fitted, all with the Android app's shared code and thresholds. When it's done
-  the tracer is drawn over a picture of the shot and listening stops until **Start listening** is tapped
-  again (as on Android). Every shot is saved as a recording in the Android format (`shot_*.zip`).
-- **Recordings tab:** plays back recordings from either app (`shot_*.zip`, `shot-debug_*.zip`,
-  `missed-strike_*.zip`, `golf-shot_*.zip`, `debug-session_*.zip`) through the same shot detection, showing
-  the ball ringed on the tee and its flight, solid where seen and dashed where estimated. Each can be
-  shared (swipe right, or the share button in its playback), to send to whoever is looking into tracking.
+- **Tracer View:** the camera fills the screen. The card at the top has the brand (the shot's distance once
+  revealed), the golfer (1 to 4) and club the next shot is tagged with, and the GPS buttons to lock the tee
+  and pin the ball (the distance follows you as you walk to it). The gear opens Settings. The status banner
+  says what's going on (listening, a shot being followed or worked out, the shot saved), with the
+  microphone's level, video, recordings used, how far behind the detector is, and notes about strikes heard,
+  saving and the video re-trace. **Start listening** / **Stop listening**, then **Locate Ball** and
+  **Review** once a shot is in. After each shot the tracer is drawn over a still of the swing and listening
+  stops until it's started again. The recording-limit and keep/discard prompts are as on Android.
+- **Each shot** keeps its video from 2.5 s before the strike (the camera records all the time it's
+  listening, sound included), its analysis frames (`capture.zip`), `tracking.json`, and a snapshot with the
+  tracer and shot card baked in. It's traced again from the full video (the shared `VideoRetracer`, decoded
+  with AVFoundation), and the better trace kept. The landing is estimated from the launch for the ball
+  locator. A shot-debug zip goes to Files › GolfBallTracer, and strikes heard during a swing without a shot
+  save a missed-strike zip there.
+- **Settings:** flash, hear the strike (microphone), tune the curve by dragging, tracer style, start/stop a
+  debug recording (up to 45 s of video, sound, frames and what the detector did, to Files, with notes), the
+  demo flight, and **Replay recordings** (plays back recordings from either app through the shot detection).
+- **Shot Log:** totals (shots, average and longest distance, recordings used), every shot with its snapshot,
+  club, golfer, date and distance, finding a past shot's ball, delete, share every recording (golf-shot
+  zips), export the history as CSV, and press-and-hold to select shots and export their videos with the
+  tracer drawn in (saved to Photos, then Share).
+- **Shot Review:** the video on a loop with the tracer growing with the ball (or the snapshot), where the
+  tracer came from, distance, club, golfer and GPS, Locate Ball, Record Next Shot, and export the video,
+  share the recording, share the snapshot.
+
+Differences from Android: videos are saved to Photos (Android: Movies/GolfTracker), and recordings to the
+app's folder in Files (Android: Downloads/GolfBallTracer).
 
 How it fits together: `CameraController` reads each 1080p frame's grey plane straight into the shared
-`CameraFrameSampler` (turned upright and cropped to the screen, about 640 pixels tall);
-`StrikeMicrophone` feeds the microphone to the shared strike detector in measurement mode (no voice
-processing); `ShotDetector` runs the shared `ShotTrigger` on its own queue; frames and strikes share the
-host clock. `MotionSensor` gives the camera's pose for estimated flights and drops strikes heard with the
-phone pointing at the ground.
+`CameraFrameSampler` (turned upright and cropped to the screen, about 640 pixels tall) and hands every frame
+to `ShotVideoRecorder` (AVAssetWriter); `StrikeMicrophone` feeds the shared strike detector in measurement
+mode (no voice processing); `ShotDetector` runs the shared `ShotTrigger` on its own queue; frames and strikes
+share the host clock. `TrackerModel` is the Tracer View's logic (Android's TrackerScreen), `ShotProcessor`
+saves and re-traces shots, and `ShotStore` keeps them as the Android app does (`shot_data/<id>.json`,
+`shot_media/<id>/`). `DeviceOrientation` gives the camera's pose and compass heading; `LocationService` the
+GPS.
 
 Frame rate: the camera films 1080p at the fastest rate it has, up to 60 frames a second (newer iPhones;
 the iPad 9th generation and older phones film at 30). The shared `FramePacer` passes every frame while the
 detector keeps up, drops to 30 once it's a second behind, and tries 60 again later. On the Oct 18 range
 sessions (60 fps video) every ball and flight was found at 60 fps, while every other frame (30 fps) missed
 one ball and one flight. Rates above 60 aren't used: no footage has been checked there.
-
-**Still to come:** GPS distances and the ball locator, the video recording and re-trace, the shot log
-with stats, and debug recordings.
 
 ## Running it
 
@@ -77,7 +94,12 @@ xcrun devicectl device process launch --console --terminate-existing --device <i
 
 Launched with `-liveCheck`, the app starts listening by itself and prints, every two seconds, the frames
 analysed per second, their size and how many are waiting, plus each strike heard and each detector event
-(`LIVE-CHECK` lines). The first analysis frame is saved as `Documents/live-check.png`:
+(`LIVE-CHECK` lines). The first analysis frame is saved as `Documents/live-check.png`. Two more checks print
+`DEV-CHECK` lines: `-videoCheck` traces a shot recording copied into `Documents/video-check` (`video.mp4`,
+`tracking.json`, `capture.zip` from a shot's `shot_media` folder, from either app) again from its video and
+exports it with its tracer (`exported.mp4`, with frames before and after the strike as PNGs); `-debugCheck`
+makes an 8 s debug recording. On the iPad, a Pixel shot re-traced exactly as on Android (60 fps, followed
+0.5 s, same alignment), and the iPad's own debug recording replayed in the Android tests:
 
 ```bash
 xcrun devicectl device process launch --console --terminate-existing --device <id> com.koterapps.golfballtracer -- -liveCheck

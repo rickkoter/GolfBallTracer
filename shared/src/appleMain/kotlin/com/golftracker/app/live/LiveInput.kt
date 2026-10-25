@@ -107,6 +107,9 @@ class LiveShotTrigger(onEvent: (ShotTrigger.Event) -> Unit) {
 
     val isCapturing: Boolean get() = trigger.isCapturing
 
+    /** When swing-sized motion was last seen, on the frames' clock. */
+    val lastActivityNs: Long get() = trigger.lastActivityNs
+
     /** Whether to look for shots in bursts of motion too, for when there's no microphone to hear them. */
     var watchWithoutSound: Boolean
         get() = trigger.watchWithoutSound

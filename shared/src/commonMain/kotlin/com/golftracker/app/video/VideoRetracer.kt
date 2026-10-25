@@ -9,7 +9,7 @@ import com.golftracker.app.tracker.ShotCaptureSession
 import com.golftracker.app.tracker.TeeBall
 import com.golftracker.app.tracker.Thumbnails
 import com.golftracker.app.tracker.VideoAlignment
-import java.io.File
+import com.golftracker.app.tracker.fixed
 import kotlin.math.roundToInt
 
 /**
@@ -48,12 +48,14 @@ object VideoRetracer {
         else -> video.trackedSeconds >= live.trackedSeconds - 0.05
     }
 
-    /** [startGuessNs] is roughly when the video's first frame was taken on the live clock, if known. */
-    fun retrace(file: File, startGuessNs: Long?, live: CapturedShot, camera: LaunchPhysics.CameraPose?): Result {
+    /**
+     * [reader] decodes the shot's video; [startGuessNs] is roughly when its first frame was taken on the
+     * live clock, if known.
+     */
+    fun retrace(reader: VideoFrameSource, startGuessNs: Long?, live: CapturedShot, camera: LaunchPhysics.CameraPose?): Result {
         val impact = live.impactTimestampNs ?: return Result(null, null, null, null, "no impact time")
         val thumbs = live.thumbnails
         if (thumbs.size < 3) return Result(null, null, null, null, "no live frames to line up with")
-        val reader = VideoFrameReader(file)
         val info = reader.info() ?: return Result(null, null, null, null, "couldn't open the video")
 
         // Without the recorder's estimate, the video ends about when the live capture did.
@@ -106,13 +108,31 @@ object VideoRetracer {
         val shot = session?.stop()?.copy(impactTimestampNs = impact, heardImpact = live.heardImpact)
             ?: return Result(null, null, offset, fps, "no video frames around the shot")
         val flight = BallFlightFitter.fitBest(shot.copy(changedArea = live.changedArea), camera)
-        val note = "%.0f fps video, %s".format(fps ?: 0.0, when {
+        val note = "${(fps ?: 0.0).fixed(0)} fps video, " + when {
             flight == null -> "no flight found"
-            flight.estimated -> "ball seen %.2f s, rest estimated".format(flight.trackedSeconds)
-            else -> "followed %.1f s".format(flight.trackedSeconds)
-        })
+            flight.estimated -> "ball seen ${flight.trackedSeconds.fixed(2)} s, rest estimated"
+            else -> "followed ${flight.trackedSeconds.fixed(1)} s"
+        }
         return Result(shot, flight, offset, fps, note)
     }
 
     private fun ns(seconds: Double) = (seconds * 1e9).toLong()
+}
+
+/**
+ * Decodes a recorded video into [LumaFrame]s like the camera analysis produces: Android's MediaCodec, or
+ * AVFoundation on iOS.
+ */
+interface VideoFrameSource {
+    /** [rotation] is how far frames are turned to stand upright; [width]/[height] are as stored. */
+    class Info(val durationUs: Long, val rotation: Int, val width: Int, val height: Int, val frameRate: Double?)
+
+    fun info(): Info?
+
+    /**
+     * Calls [onFrame] for each frame from [fromUs] to [toUs] (video time), sampled with a long side of
+     * [longSide], turned upright by [rotation] (the file's own when null) and center-cropped to
+     * [uprightAspect]. Frame timestamps are the video time in nanoseconds. Returns how many were read.
+     */
+    fun read(fromUs: Long, toUs: Long, longSide: Int, uprightAspect: Float, rotation: Int?, onFrame: (LumaFrame) -> Unit): Int
 }

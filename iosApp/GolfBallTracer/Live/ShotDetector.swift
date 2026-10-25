@@ -1,4 +1,3 @@
-import CoreMotion
 import Foundation
 import GolfTracking
 
@@ -34,6 +33,19 @@ final class ShotDetector {
 
     var queuedFrames: Int { lock.lock(); defer { lock.unlock() }; return queued }
 
+    /// When swing-sized motion was last seen, on the frames' clock.
+    var lastActivityNs: Int64 { trigger.lastActivityNs }
+
+    /// The newest frame looked at so far, on the frames' clock; 0 before any.
+    private var lastSeenFrameNs: Int64 = 0
+
+    /// How far behind the camera the detector is, in seconds, or 0 when it's keeping up (or idle).
+    var lagSeconds: Double {
+        lock.lock(); let waiting = queued; lock.unlock()
+        guard lastSeenFrameNs > 0, waiting > 0 else { return 0 }
+        return max(0, Double(hostNowNs() - lastSeenFrameNs) / 1e9)
+    }
+
     func offer(_ frame: LumaFrame) {
         lock.lock()
         // About 10 s of frames: beyond that the detector has fallen hopelessly behind.
@@ -46,7 +58,10 @@ final class ShotDetector {
             self.queued -= 1
             let current = mine == self.generation
             self.lock.unlock()
-            if current { self.trigger.onFrame(frame: frame) }
+            if current {
+                self.lastSeenFrameNs = frame.timestampNs
+                self.trigger.onFrame(frame: frame)
+            }
         }
     }
 
@@ -75,46 +90,5 @@ final class ShotDetector {
 
     func finishCapture() {
         queue.async { self.trigger.finishCapture() }
-    }
-}
-
-/// Which way the phone points, for the camera's pose (to estimate a flight only glimpsed) and to let go of
-/// strikes heard while the camera faces the ground.
-final class MotionSensor {
-    private let manager = CMMotionManager()
-
-    func start() {
-        guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
-        manager.deviceMotionUpdateInterval = 0.1
-        manager.startDeviceMotionUpdates(using: .xMagneticNorthZVertical)
-    }
-
-    func stop() { manager.stopDeviceMotionUpdates() }
-
-    /// Pointing more than 55° below level (as on Android): filming the ground, not a shot.
-    var cameraLooksDown: Bool {
-        // The back camera looks along the phone's −z; gravity's z is how far that is downward.
-        guard let gravity = manager.deviceMotion?.gravity else { return false }
-        return gravity.z < -0.82
-    }
-
-    /// Row-major rotation from phone axes (x right, y up the screen, z out of it) to east/north/up.
-    var deviceToWorld: [Float]? {
-        guard let motion = manager.deviceMotion else { return nil }
-        let r = motion.attitude.rotationMatrix
-        // Core Motion's reference frame is x north, y west, z up. Whether its matrix maps phone to reference
-        // or the other way round is settled by gravity: phone-to-reference must turn "up" (−gravity) into +z.
-        let m = [[r.m11, r.m12, r.m13], [r.m21, r.m22, r.m23], [r.m31, r.m32, r.m33]]
-        let up = [-motion.gravity.x, -motion.gravity.y, -motion.gravity.z]
-        let zIfPhoneToReference = m[2][0] * up[0] + m[2][1] * up[1] + m[2][2] * up[2]
-        let zIfReferenceToPhone = m[0][2] * up[0] + m[1][2] * up[1] + m[2][2] * up[2]
-        let toReference: [[Double]] = zIfPhoneToReference >= zIfReferenceToPhone
-            ? m
-            : [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]
-        // East is minus west, north is north, up is up.
-        let east = toReference[1].map { -$0 }
-        let north = toReference[0]
-        let upRow = toReference[2]
-        return (east + north + upRow).map(Float.init)
     }
 }

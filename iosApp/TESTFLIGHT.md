@@ -74,15 +74,19 @@ get an email. Builds expire after 90 days.
 >
 > 1. Stand the phone **upright** a few steps behind the golfer, looking down the target line, with the ball
 >    in the lower part of the screen. A tripod or a phone clamp on a bag helps: the phone must stay still.
-> 2. Pick the club and golfer at the top, then tap **Start listening**.
+> 2. Pick the golfer and club on the card at the top, then tap **Start listening**. Allow location too: it
+>    measures shots and finds the ball.
 > 3. Hit. The app hears the strike, sees the ball leave, follows it for up to 3 seconds and draws the
 >    tracer over a picture of the shot. The dashed part is estimated where the ball went out of sight.
-> 4. Tap **Start listening** again for the next shot. Listening stops after each shot so you can change
->    the club or golfer.
+> 4. **Locate Ball** points you to where it came down; at the ball, tap the pin button on the card to
+>    measure the shot. **Review** opens the shot. Tap **Start listening** for the next shot.
+>
+> The gear has the settings: flash, the microphone, tracer colours, a demo flight, and debug recordings.
 >
 > **Sending shots back**
 >
-> Every shot is saved in the **Recordings** tab. To send one, swipe right on it (or open it and tap the
-> share button) and pick Mail, AirDrop, Messages or Google Drive. Shots that traced badly are the most
-> useful: add a line about what happened. For anything else, take a screenshot in the app and TestFlight
-> offers to send it as feedback, with your comments.
+> Every shot is in the **Shot Log** tab. To send one, open it and tap the camera button for its recording
+> (or the camera button at the top of the log for all of them), then pick Mail, AirDrop, Messages or Google
+> Drive. Shots that traced badly are the most useful: add a line about what happened. To share a video with
+> the tracer, tap the film button on a shot, or press and hold shots in the log to pick several. For
+> anything else, take a screenshot in the app and TestFlight offers to send it as feedback, with your comments.

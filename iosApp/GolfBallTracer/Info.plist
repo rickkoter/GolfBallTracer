@@ -41,8 +41,12 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>GolfBallTracer films your shot to find the ball leaving the tee and trace its flight.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GolfBallTracer uses GPS to measure your shots and point you to where the ball landed.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>GolfBallTracer listens for the sound of the club striking the ball, to know when a shot starts.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>GolfBallTracer saves shot videos with the tracer drawn in to your photos.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
