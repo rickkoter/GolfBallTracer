@@ -1,17 +1,24 @@
 package com.golftracker.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.SportsGolf
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
@@ -28,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.golftracker.app.export.ShotBundle
 import com.golftracker.app.export.ShotHistoryCsv
+import com.golftracker.app.export.ShotVideoExporter
 import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.ShotRecord
@@ -102,6 +110,35 @@ fun HistoryScreen(
         }
     }
 
+    // Shots picked for exporting their videos: a long press starts picking, taps add or remove more.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selected.isNotEmpty()
+    // Shots deleted meanwhile drop out of the selection.
+    LaunchedEffect(shots) { selected = selected.filterTo(HashSet()) { id -> shots.any { it.id == id } } }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+    fun toggle(shot: ShotRecord) {
+        selected = if (shot.id in selected) selected - shot.id else selected + shot.id
+    }
+    val selectedShots = shots.filter { it.id in selected }
+    val selectedWithVideo = selectedShots.count { ShotVideoExporter.hasVideo(it) }
+    // Exporting the selected shots' videos with their tracers: how far along, or null when not exporting.
+    var exportProgress by remember { mutableStateOf<Float?>(null) }
+    val exportVideos: () -> Unit = {
+        val toExport = selectedShots
+        exportProgress = 0f
+        scope.launch {
+            val outcome = ShotVideoExporter.export(context, toExport) { exportProgress = it }
+            exportProgress = null
+            selected = emptySet()
+            val shared = snackbar.showSnackbar(
+                if (outcome.saved.isEmpty()) "No videos were made" + (if (outcome.withoutVideo.isNotEmpty()) " • ${outcome.withoutVideo.size} without a video" else "") else outcome.summary,
+                actionLabel = if (outcome.saved.isEmpty()) null else "Share",
+                duration = SnackbarDuration.Long
+            )
+            if (shared == SnackbarResult.ActionPerformed) context.startActivity(ShotVideoExporter.shareIntent(outcome.saved))
+        }
+    }
+
     val totalShots = shots.size
     // Only shots whose distance is known: pinned on GPS, or estimated from the launch.
     val distances = shots.mapNotNull { it.distance?.yards }
@@ -110,7 +147,43 @@ fun HistoryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (selecting) TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = { selected = emptySet() }, enabled = exportProgress == null) {
+                        Icon(Icons.Default.Close, contentDescription = "Stop selecting", tint = Color.White)
+                    }
+                },
+                title = {
+                    Column {
+                        Text("${selected.size} selected", color = Color.White, fontWeight = FontWeight.Bold)
+                        val progress = exportProgress
+                        Text(
+                            if (progress != null) "Making videos… %.0f%%".format(progress * 100)
+                            else if (selectedWithVideo == selected.size) "Export their videos with the tracer"
+                            else "$selectedWithVideo with a video",
+                            color = GolfTextSecondary, fontSize = 12.sp
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { selected = shots.map { it.id }.toSet() }, enabled = exportProgress == null) {
+                        Icon(Icons.Default.SelectAll, contentDescription = "Select all", tint = Color.White)
+                    }
+                    IconButton(onClick = exportVideos, enabled = exportProgress == null && selectedWithVideo > 0) {
+                        val progress = exportProgress
+                        if (progress != null) {
+                            CircularProgressIndicator(progress = { progress }, color = GolfNeonLime, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        } else {
+                            Icon(
+                                Icons.Default.Movie,
+                                contentDescription = "Export videos with tracer",
+                                tint = if (selectedWithVideo > 0) GolfNeonLime else GolfTextMuted
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = GolfDarkCard)
+            ) else TopAppBar(
                 title = { Text("Shot History & Stats", color = Color.White, fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = shareRecordings, enabled = recordings > 0 && !isPacking) {
@@ -211,7 +284,10 @@ fun HistoryScreen(
                     items(shots, key = { it.id }) { shot ->
                         ShotHistoryCard(
                             shot = shot,
-                            onClick = { onSelectShot(shot) },
+                            selecting = selecting,
+                            isSelected = shot.id in selected,
+                            onClick = { if (selecting) { if (exportProgress == null) toggle(shot) } else onSelectShot(shot) },
+                            onLongClick = { if (exportProgress == null) toggle(shot) },
                             onLocate = { locating = shot },
                             onDelete = {
                                 scope.launch { repository.deleteShot(shot.id) }
@@ -226,10 +302,14 @@ fun HistoryScreen(
     locating?.let { shot -> ShotBallLocator(shot, here, heading) { locating = null } }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ShotHistoryCard(
     shot: ShotRecord,
+    selecting: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     onLocate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -241,7 +321,8 @@ fun ShotHistoryCard(
         colors = CardDefaults.cardColors(containerColor = GolfDarkCard),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .then(if (isSelected) Modifier.border(2.dp, GolfNeonLime, RoundedCornerShape(16.dp)) else Modifier)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Row(
             modifier = Modifier
@@ -266,6 +347,11 @@ fun ShotHistoryCard(
                     )
                 } else {
                     Icon(Icons.Default.SportsGolf, contentDescription = null, tint = GolfNeonLime)
+                }
+                if (isSelected) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = GolfNeonLime, modifier = Modifier.size(32.dp))
+                    }
                 }
             }
 
@@ -312,6 +398,8 @@ fun ShotHistoryCard(
                 }
             }
 
+            // While picking shots, the card's own buttons step aside.
+            if (selecting) return@Row
             // The ball locator, for a shot with a landing estimate or a pinned ball position.
             val locatable = shot.isLocatable
             IconButton(onClick = onLocate, enabled = locatable) {

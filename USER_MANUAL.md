@@ -123,6 +123,7 @@ After completing a shot, you are automatically taken to the **Shot Review** scre
 - **HD Snapshot Preview**: Displays the captured camera frame, glowing vector flight arc, and the **⚡ GOLF TRACER PRO** telemetry badge.
 - **Telemetry Card**: Displays Total Distance (Yards & Meters), Club used, Timestamp, and GPS coordinates.
 - **Share Button**: Tap the **Share Icon** in the top right header to instantly send your snapshot image to Instagram, Messages, WhatsApp, Twitter/X, or Email.
+- **Export the video**: tap the 🎬 (film) icon to make the shot's video with the tracer drawn in, growing along with the ball as on the review, plus a caption with the club, golfer and distance. It's cropped to the view the shot was traced in and keeps the sound of the strike. Making it takes a few seconds (the icon shows how far along it is); it's then saved to the phone's **Movies/GolfTracker** folder, where the Photos app finds it, and **Share** on the message that appears sends it on. The icon only shows for a shot that still has its video.
 
 ---
 
@@ -134,6 +135,7 @@ Tap the **Shot Log** tab on the bottom navigation bar to access your saved shots
 - **Shot Log List**: Inspect thumbnail previews, dates, club and golfer tags, and yardages for every recorded shot. Distances are in yards: measured on GPS for a shot whose ball you pinned, or estimated from the launch (shown with a ~ and "estimated"). A shot with neither shows "No distance".
 - **Find a past shot's ball**: tap the locate (crosshair) icon on a shot, or **Locate Ball** on its review, to open the ball locator for it, pointing the way from where you are now. It uses the landing estimate saved with the shot, or, for a shot whose ball you pinned on GPS, that spot. Shots with neither (including those from before this was added) have the icon greyed out.
 - **Delete Shots**: Tap the trash icon next to any shot to remove it, and its recording, from history.
+- **Export several videos**: press and hold a shot to start selecting, then tap more shots (or **Select all** at the top). Tap the 🎬 icon to export each selected shot's video with its tracer, one video per shot, to **Movies/GolfTracker**; **Share** on the message that follows sends them all at once. Shots without a video are left out and counted in the message. Tap ✕ or Back to stop selecting.
 - **Recordings**: Shots with a 🎥 have a recording. The summary shows how many of the 32 are used.
 
 ---

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SportsGolf
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.golftracker.app.export.ShotBundle
+import com.golftracker.app.export.ShotVideoExporter
 import com.golftracker.app.location.DeviceOrientation
 import com.golftracker.app.location.LocationTrackerManager
 import com.golftracker.app.model.ShotRecord
@@ -67,6 +69,22 @@ fun ShotReviewScreen(
     val videoPath = shotRecord.videoPath?.takeIf { File(it).exists() }
     var showSnapshot by remember { mutableStateOf(false) }
     var isPacking by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    // Exporting the video with the tracer drawn in: how far along, or null when not exporting.
+    var exportProgress by remember { mutableStateOf<Float?>(null) }
+    val exportVideo: () -> Unit = {
+        exportProgress = 0f
+        scope.launch {
+            val outcome = ShotVideoExporter.export(context, listOf(shotRecord)) { exportProgress = it }
+            exportProgress = null
+            val shared = snackbar.showSnackbar(
+                if (outcome.saved.isEmpty()) "Couldn't make the video" else outcome.summary,
+                actionLabel = if (outcome.saved.isEmpty()) null else "Share",
+                duration = SnackbarDuration.Long
+            )
+            if (shared == SnackbarResult.ActionPerformed) context.startActivity(ShotVideoExporter.shareIntent(outcome.saved))
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -78,6 +96,17 @@ fun ShotReviewScreen(
                     }
                 },
                 actions = {
+                    if (videoPath != null) {
+                        // The video with the tracer drawn in, saved to Movies/GolfTracker to post or send.
+                        IconButton(enabled = exportProgress == null, onClick = exportVideo) {
+                            val progress = exportProgress
+                            if (progress != null) {
+                                CircularProgressIndicator(progress = { progress }, color = GolfNeonLime, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                            } else {
+                                Icon(Icons.Default.Movie, contentDescription = "Export video with tracer", tint = GolfNeonLime)
+                            }
+                        }
+                    }
                     if (shotRecord.hasRecording) {
                         // The recording and tracking data as one zip, e.g. to Google Drive for analysis later.
                         IconButton(enabled = !isPacking, onClick = {
@@ -112,6 +141,7 @@ fun ShotReviewScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = GolfDarkBg)
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         containerColor = GolfDarkBg
     ) { padding ->
         Column(

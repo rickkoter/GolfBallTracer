@@ -84,6 +84,10 @@ dependencies {
 
   // Coil & Serialization
   implementation(libs.coil.compose)
+  // Shot videos exported with the tracer drawn in.
+  implementation(libs.media3.transformer)
+  implementation(libs.media3.effect)
+  implementation(libs.media3.common)
   implementation(libs.kotlinx.serialization.json)
 
   // Tooling

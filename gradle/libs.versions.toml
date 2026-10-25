@@ -17,6 +17,7 @@ lifecycleViewmodelNav3 = "2.10.0"
 camerax = "1.4.1"
 playServicesLocation = "21.3.0"
 coil = "2.7.0"
+media3 = "1.10.1"
 kotlinxSerializationJson = "1.7.3"
 
 [libraries]
@@ -55,6 +56,9 @@ play-services-location = { module = "com.google.android.gms:play-services-locati
 
 # Utilities
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
+media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
+media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 
 [plugins]
