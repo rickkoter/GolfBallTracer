@@ -23,3 +23,7 @@ iosApp/**/xcuserdata/
 *.xcuserstate
 shared/build/
 .kotlin/
+
+# App Review correspondence: kept locally, not in Git.
+AppStoreRequirements.docx
+iosApp/APP_REVIEW_NOTES.md
